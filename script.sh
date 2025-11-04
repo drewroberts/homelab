@@ -26,44 +26,96 @@ check_root
 log "1. System Preparation and Tool Installation (using yay)"
 
 # 1.1 Disable swap permanently (K3s requirement)
-if grep -q "swap" /etc/fstab; then
-    log "Disabling swap and removing fstab entry..."
+SWAP_ACTIVE=$(swapon --show | wc -l)
+SWAP_IN_FSTAB=$(grep -c "swap" /etc/fstab || echo "0")
+
+if [ "$SWAP_ACTIVE" -gt 0 ]; then
+    log "Disabling active swap..."
     swapoff -a
+fi
+
+if [ "$SWAP_IN_FSTAB" -gt 0 ]; then
+    log "Commenting out swap entries in /etc/fstab..."
     sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+fi
+
+if [ "$SWAP_ACTIVE" -eq 0 ] && [ "$SWAP_IN_FSTAB" -eq 0 ]; then
+    log "Swap already disabled and removed from fstab."
+elif [ "$SWAP_ACTIVE" -eq 0 ] && [ "$SWAP_IN_FSTAB" -gt 0 ]; then
+    log "Swap was inactive but fstab entries have been commented out."
+elif [ "$SWAP_ACTIVE" -gt 0 ] && [ "$SWAP_IN_FSTAB" -eq 0 ]; then
+    log "Active swap disabled (fstab was already clean)."
 else
-    log "Swap already disabled/removed in fstab."
+    log "Swap disabled and fstab entries commented out."
 fi
 
 # 1.2 Install necessary packages
-PACKAGES="curl git kubectl podman yay"
-if command -v yay &> /dev/null; then
-    log "Yay is installed. Installing required packages..."
-    yay -Syu --noconfirm $PACKAGES || { log "FATAL: Package installation failed."; exit 1; }
+PACKAGES="curl git kubectl podman"
+MISSING_PACKAGES=()
+
+# Check which packages are missing
+for package in $PACKAGES; do
+    if ! pacman -Qi "$package" >/dev/null 2>&1; then
+        MISSING_PACKAGES+=("$package")
+    fi
+done
+
+# Only install missing packages
+if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
+    log "Installing missing packages: ${MISSING_PACKAGES[*]}"
+    yay -S --noconfirm "${MISSING_PACKAGES[@]}" || { log "FATAL: Package installation failed."; exit 1; }
 else
-    log "Yay not found. Attempting to install with pacman first..."
-    pacman -Syu --noconfirm $PACKAGES || { log "FATAL: Package installation failed. Install yay manually or update the script."; exit 1; }
+    log "All required packages already installed."
 fi
 
 log "2. Installing K3s (Single-Node Server)"
 
-# 2.1 Install K3s (Server mode)
-curl -sfL https://get.k3s.io | sh -
-
-log "Waiting for K3s to initialize..."
-sleep 10
-kubectl wait --for=condition=Ready node/$(hostname) --timeout=120s || { log "FATAL: K3s node failed to become ready."; exit 1; }
+# 2.1 Check if K3s is already installed and running
+if systemctl is-active --quiet k3s; then
+    log "K3s is already installed and running."
+    K3S_VERSION=$(k3s --version 2>/dev/null | head -n1 | awk '{print $3}' || echo "unknown")
+    log "Current K3s version: $K3S_VERSION"
+    
+    # Verify cluster is healthy
+    if kubectl get nodes --no-headers 2>/dev/null | grep -q "Ready"; then
+        log "K3s cluster is healthy and ready."
+    else
+        log "K3s is running but cluster may have issues. Continuing with configuration..."
+    fi
+else
+    log "Installing K3s (Server mode)..."
+    curl -sfL https://get.k3s.io | sh -
+    
+    log "Waiting for K3s to initialize..."
+    sleep 10
+    kubectl wait --for=condition=Ready node/$(hostname) --timeout=120s || { log "FATAL: K3s node failed to become ready."; exit 1; }
+fi
 
 log "3. Configuring Cluster Access for Current User"
 
 # 3.1 Setup Kubeconfig for the user who called the script
 CALLING_USER=$(logname)
 USER_HOME=$(eval echo ~$CALLING_USER)
+USER_KUBECONFIG="$USER_HOME/.kube/config"
 
-log "Setting up kubectl access for user: $CALLING_USER"
-mkdir -p "$USER_HOME/.kube"
-cp "$K3S_CONFIG_PATH" "$USER_HOME/.kube/config"
-chown -R "$CALLING_USER":"$CALLING_USER" "$USER_HOME/.kube"
-chmod 600 "$USER_HOME/.kube/config"
+# Check if kubeconfig already exists and is valid
+if [ -f "$USER_KUBECONFIG" ]; then
+    if sudo -u "$CALLING_USER" kubectl --kubeconfig="$USER_KUBECONFIG" cluster-info >/dev/null 2>&1; then
+        log "Kubectl access already configured and working for $CALLING_USER"
+    else
+        log "Existing kubeconfig invalid, updating..."
+        mkdir -p "$USER_HOME/.kube"
+        cp "$K3S_CONFIG_PATH" "$USER_KUBECONFIG"
+        chown -R "$CALLING_USER":"$CALLING_USER" "$USER_HOME/.kube"
+        chmod 600 "$USER_KUBECONFIG"
+    fi
+else
+    log "Setting up kubectl access for user: $CALLING_USER"
+    mkdir -p "$USER_HOME/.kube"
+    cp "$K3S_CONFIG_PATH" "$USER_KUBECONFIG"
+    chown -R "$CALLING_USER":"$CALLING_USER" "$USER_HOME/.kube"
+    chmod 600 "$USER_KUBECONFIG"
+fi
 
 log "4. Configuring Traefik for Let's Encrypt (ACME Resolver)"
 
@@ -88,16 +140,28 @@ EOF
 
 # 4.2 Write the configuration file
 TRAEFIK_CONFIG_PATH="/var/lib/rancher/k3s/server/manifests/traefik-config.yaml"
-log "Writing Traefik configuration to $TRAEFIK_CONFIG_PATH"
-echo "$TRAEFIK_CONFIG" > "$TRAEFIK_CONFIG_PATH"
+RESTART_NEEDED=false
 
-log "5. Restarting K3s to Apply Traefik Changes"
+# Check if Traefik config exists and contains our email
+if [ -f "$TRAEFIK_CONFIG_PATH" ] && grep -q "letsencrypt.acme.email=${EMAIL}" "$TRAEFIK_CONFIG_PATH"; then
+    log "Traefik configuration already exists and is correct."
+else
+    log "Writing/updating Traefik configuration to $TRAEFIK_CONFIG_PATH"
+    echo "$TRAEFIK_CONFIG" > "$TRAEFIK_CONFIG_PATH"
+    RESTART_NEEDED=true
+fi
 
-# 5.1 Restart K3s systemd service
-systemctl restart k3s
+log "5. Applying K3s Configuration Changes"
 
-log "Waiting for Traefik configuration to apply..."
-sleep 15
+# 5.1 Only restart K3s if configuration changed
+if [ "$RESTART_NEEDED" = true ]; then
+    log "Restarting K3s to apply Traefik changes..."
+    systemctl restart k3s
+    log "Waiting for Traefik configuration to apply..."
+    sleep 15
+else
+    log "No K3s restart needed - configuration unchanged."
+fi
 
 log "✅ SETUP COMPLETE!"
 echo ""
