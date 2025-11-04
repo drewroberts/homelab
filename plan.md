@@ -75,6 +75,192 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 ---
 
+### Phase D: Monitoring & Observability Stack
+
+| Step | Component | Action | Details |
+| :--- | :--- | :--- | :--- |
+| **D.1** | **Namespace** | **Create Monitoring Namespace** | `kubectl create namespace monitoring` - Isolate monitoring stack from application workloads. |
+| **D.2** | **Prometheus** | **Deploy Metrics Collection** | Deploy Prometheus Server as StatefulSet with persistent storage for metrics retention (7-30 days). Configure ServiceMonitor resources for automatic discovery. |
+| **D.3** | **Node Exporter** | **Install Host Metrics** | Deploy Node Exporter as DaemonSet on all nodes to collect CPU, memory, disk, and network metrics from each desktop. |
+| **D.4** | **Grafana** | **Deploy Visualization** | Install Grafana with persistent storage for dashboards and configuration. Pre-configure dashboards for K3s cluster overview, node health, and application metrics. |
+| **D.5** | **Loki** | **Log Aggregation** | Deploy Loki for centralized log collection with Promtail DaemonSet to ship logs from all pods and nodes. |
+| **D.6** | **AlertManager** | **Configure Alerting** | Set up AlertManager with webhook integrations (Discord/Slack) for critical cluster events (node down, high resource usage, pod crashes). |
+| **D.7** | **Ingress Rules** | **Expose Dashboards** | Create Traefik ingress rules for secure access to Grafana (`monitoring.yourdomain.com`) over Tailscale VPN only. |
+
+#### 📊 Monitoring Architecture
+
+```yaml
+# FILE: monitoring/prometheus/deployment.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus-server
+  namespace: monitoring
+spec:
+  serviceName: prometheus-server
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-server
+  template:
+    metadata:
+      labels:
+        app: prometheus-server
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus/
+        - name: prometheus-storage
+          mountPath: /prometheus/
+        args:
+          - --config.file=/etc/prometheus/prometheus.yml
+          - --storage.tsdb.path=/prometheus/
+          - --storage.tsdb.retention.time=30d
+          - --web.console.libraries=/etc/prometheus/console_libraries
+          - --web.console.templates=/etc/prometheus/consoles
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+  volumeClaimTemplates:
+  - metadata:
+      name: prometheus-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 50Gi
+
+---
+# FILE: monitoring/grafana/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-credentials
+              key: admin-password
+        - name: GF_SERVER_ROOT_URL
+          value: "https://monitoring.yourdomain.com"
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-piechart-panel,grafana-worldmap-panel"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+  volumeClaimTemplates:
+  - metadata:
+      name: grafana-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+# FILE: monitoring/loki/deployment.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  serviceName: loki
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+      - name: loki
+        image: grafana/loki:latest
+        ports:
+        - containerPort: 3100
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: loki-storage
+          mountPath: /loki/
+        args:
+          - -config.file=/etc/loki/local-config.yaml
+  volumeClaimTemplates:
+  - metadata:
+      name: loki-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 100Gi
+```
+
+#### 🚨 Key Monitoring Metrics & Alerts
+
+| Category | Metric | Alert Threshold | Action |
+| :--- | :--- | :--- | :--- |
+| **Node Health** | `up{job="node-exporter"}` | Node down > 2 minutes | Send Discord alert, investigate hardware |
+| **Resource Usage** | `node_memory_MemAvailable_bytes` | < 20% available memory | Scale down non-critical workloads |
+| **Disk Space** | `node_filesystem_avail_bytes` | < 15% free space | Clean up logs, extend storage |
+| **Pod Status** | `kube_pod_status_phase{phase="Failed"}` | Failed pods > 0 for 5 minutes | Restart deployment, check logs |
+| **Laravel App** | `traefik_service_request_duration_seconds` | Response time > 2s | Scale up replicas, check database |
+| **Database** | `mysql_up` | MySQL down > 30 seconds | Failover to backup, restore from snapshot |
+
+#### 📈 Pre-configured Dashboards
+
+1. **Cluster Overview**: Node status, resource utilization, pod distribution
+2. **Node Details**: Per-node CPU, memory, disk, network metrics  
+3. **Application Performance**: Laravel response times, error rates, throughput
+4. **Database Monitoring**: MySQL connections, query performance, replication lag
+5. **Traefik Ingress**: Request volume, SSL certificate expiry, backend health
+6. **Resource Planning**: Historical trends for capacity planning
+
+---
+
 ## 💻 Laravel Multi-Tenant Deployment Specification
 
 ```yaml
