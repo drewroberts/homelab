@@ -154,7 +154,7 @@ curl http://localhost:3101/metrics
 - Resource usage: 0.5-1GB RAM, 0.25-0.5 CPU core
 
 **Web Access:**
-- **URL**: `https://monitoring.yourdomain.com` (update domain in ingress)
+- **URL**: `https://monitoring.drewroberts.com` (update domain in ingress)
 - **Username**: `admin`  
 - **Password**: `homelab123`
 - **SSL**: Automatic Let's Encrypt certificate via Traefik
@@ -169,7 +169,7 @@ curl http://localhost:3101/metrics
 kubectl edit ingress grafana-ingress -n monitoring
 
 # Then access via browser at your configured domain
-https://monitoring.yourdomain.com
+https://monitoring.drewroberts.com
 ```
 
 #### Port Forwarding for Local Access:
@@ -410,7 +410,7 @@ metadata:
 
 #### Import Process:
 ```bash
-# Access Grafana at https://monitoring.yourdomain.com
+# Access Grafana at https://monitoring.drewroberts.com
 # Login: admin / homelab123
 # Go to: + → Import → Enter dashboard ID
 ```

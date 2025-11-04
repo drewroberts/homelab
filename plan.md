@@ -85,7 +85,7 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 | **D.4** | **Grafana** | **Deploy Visualization** | Install Grafana with persistent storage for dashboards and configuration. Pre-configure dashboards for K3s cluster overview, node health, and application metrics. |
 | **D.5** | **Loki** | **Log Aggregation** | Deploy Loki for centralized log collection with Promtail DaemonSet to ship logs from all pods and nodes. |
 | **D.6** | **AlertManager** | **Configure Alerting** | Set up AlertManager with webhook integrations (Discord/Slack) for critical cluster events (node down, high resource usage, pod crashes). |
-| **D.7** | **Ingress Rules** | **Expose Dashboards** | Create Traefik ingress rules for secure access to Grafana (`monitoring.yourdomain.com`) over Tailscale VPN only. |
+| **D.7** | **Ingress Rules** | **Expose Dashboards** | Create Traefik ingress rules for secure access to Grafana (`monitoring.drewroberts.com`) over Tailscale VPN only. |
 
 #### 📊 Monitoring Architecture
 
@@ -179,7 +179,7 @@ spec:
               name: grafana-credentials
               key: admin-password
         - name: GF_SERVER_ROOT_URL
-          value: "https://monitoring.yourdomain.com"
+          value: "https://monitoring.drewroberts.com"
         - name: GF_INSTALL_PLUGINS
           value: "grafana-piechart-panel,grafana-worldmap-panel"
         volumeMounts:

@@ -454,10 +454,10 @@ metadata:
 spec:
   tls:
   - hosts:
-    - monitoring.yourdomain.com
+    - monitoring.drewroberts.com
     secretName: grafana-tls
   rules:
-  - host: monitoring.yourdomain.com
+  - host: monitoring.drewroberts.com
     http:
       paths:
       - path: /
@@ -540,7 +540,7 @@ echo ""
 log "Monitoring Stack Information:"
 echo ""
 echo "Grafana Dashboard Access:"
-echo "  URL: https://monitoring.yourdomain.com (update domain in grafana-ingress)"
+echo "  URL: https://monitoring.drewroberts.com (update domain in grafana-ingress)"
 echo "  Username: admin"
 echo "  Password: homelab123"
 echo ""
@@ -557,8 +557,8 @@ echo "3. Log out and log back in, OR run: export KUBECONFIG=$USER_HOME/.kube/con
 echo "4. Create GitHub Personal Access Token with packages:write scope"
 echo "5. Add the displayed secrets to your GitHub repository settings"
 echo "6. Follow the GitHub CI/CD guide: githubci.md"
-echo "7. Update monitoring.yourdomain.com in grafana-ingress to your actual domain"
-echo "8. Access Grafana at https://monitoring.yourdomain.com (admin/homelab123)"
+echo "7. Update monitoring.drewroberts.com in grafana-ingress to your actual domain"
+echo "8. Access Grafana at https://monitoring.drewroberts.com (admin/homelab123)"
 echo "9. Create ingress manifest files for each webapp to expose via Traefik"
 echo "10. Your Let's Encrypt resolver name is: \033[1;32mletsencrypt\033[0m"
 echo "------------------"
