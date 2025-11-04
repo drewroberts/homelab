@@ -4,10 +4,10 @@ A production-ready Kubernetes homelab built on Arch Linux desktops using K3s, Tr
 
 ## Documentation
 
-- **[Plan](plan.md)** - Complete homelab specification with architecture, security principles, and deployment phases
-- **[Expansion Guide](expansion.md)** - Step-by-step process for setting up the initial server and adding worker nodes
-- **[GitHub CI/CD Setup](githubci.md)** - Automated deployment from GitHub repositories using Podman and Apache containers
-- **[Monitoring Guide](monitoring.md)** - PLG stack management and observability across the cluster
+- **[Plan](docs/plan.md)** - Complete homelab specification with architecture, security principles, and deployment phases
+- **[Expansion Guide](docs/expansion.md)** - Step-by-step process for setting up the initial server and adding worker nodes
+- **[GitHub CI/CD Setup](docs/githubci.md)** - Automated deployment from GitHub repositories using Podman and Apache containers
+- **[Monitoring Guide](docs/monitoring.md)** - PLG stack management and observability across the cluster
 
 ## Quick Start Scripts
 
@@ -60,5 +60,5 @@ sudo cat /var/lib/rancher/k3s/server/node-token
 
 1. Set up port forwarding (80/443) on your router to the orchestrator node
 2. Install Tailscale on all nodes for secure cluster management
-3. Set up GitHub CI/CD for automated website deployments (see [GitHub CI/CD Setup](githubci.md))
+3. Set up GitHub CI/CD for automated website deployments (see [GitHub CI/CD Setup](docs/githubci.md))
 4. Deploy your first application using Apache containers
