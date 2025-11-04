@@ -163,11 +163,70 @@ else
     log "No K3s restart needed - configuration unchanged."
 fi
 
+log "6. Setting up GitHub CI/CD Prerequisites"
+
+# 6.1 Install Tailscale for secure CI/CD access
+if command -v tailscale &> /dev/null; then
+    log "Tailscale already installed."
+    if systemctl is-active --quiet tailscaled; then
+        log "Tailscale daemon is running."
+    else
+        log "Starting Tailscale daemon..."
+        systemctl enable --now tailscaled
+    fi
+else
+    log "Installing Tailscale..."
+    yay -S --noconfirm tailscale || { log "FATAL: Tailscale installation failed."; exit 1; }
+    systemctl enable --now tailscaled
+    log "Tailscale installed. Run 'sudo tailscale up' to connect to your tailnet."
+fi
+
+# 6.2 Generate SSH key pair for GitHub Actions (if not exists)
+CALLING_USER=$(logname)
+USER_HOME=$(eval echo ~$CALLING_USER)
+SSH_KEY_PATH="$USER_HOME/.ssh/github-actions"
+
+if [ ! -f "$SSH_KEY_PATH" ]; then
+    log "Generating SSH key pair for GitHub Actions..."
+    sudo -u "$CALLING_USER" ssh-keygen -t ed25519 -C "github-actions-ci" -f "$SSH_KEY_PATH" -N ""
+    
+    # Add public key to authorized_keys
+    log "Adding GitHub Actions public key to authorized_keys..."
+    sudo -u "$CALLING_USER" cat "${SSH_KEY_PATH}.pub" >> "$USER_HOME/.ssh/authorized_keys"
+    chmod 600 "$USER_HOME/.ssh/authorized_keys"
+    
+    log "GitHub Actions SSH key pair created at: $SSH_KEY_PATH"
+else
+    log "GitHub Actions SSH key already exists at: $SSH_KEY_PATH"
+fi
+
+# 6.3 Display GitHub CI setup information
+log "GitHub CI/CD Setup Information:"
+echo ""
+echo "SSH Key Locations:"
+echo "  Private key (for GitHub Secrets): $SSH_KEY_PATH"
+echo "  Public key: ${SSH_KEY_PATH}.pub"
+echo ""
+echo "Add these to your GitHub repository secrets:"
+echo "  HOMELAB_SSH_KEY: $(cat $SSH_KEY_PATH | base64 -w 0)"
+echo "  HOMELAB_USER: $CALLING_USER"
+if command -v tailscale &> /dev/null && tailscale status &> /dev/null; then
+    TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "Run 'tailscale up' first")
+    echo "  HOMELAB_HOST: $TAILSCALE_IP"
+else
+    echo "  HOMELAB_HOST: <Run 'tailscale up' to get IP>"
+fi
+echo ""
+
 log "✅ SETUP COMPLETE!"
 echo ""
 echo "--- NEXT STEPS ---"
-echo "1. Log out and log back in, OR run: export KUBECONFIG=$USER_HOME/.kube/config"
-echo "2. Verify Traefik setup by applying an Ingress manifest."
-echo "3. Remember to set up Port Forwarding (80/443) on your home router."
-echo "4. Your Let's Encrypt resolver name is: \033[1;32mletsencrypt\033[0m"
+echo "1. Connect to Tailscale: sudo tailscale up"
+echo "2. Set up Port Forwarding (80/443) on your router to this machine"
+echo "3. Log out and log back in, OR run: export KUBECONFIG=$USER_HOME/.kube/config"
+echo "4. Create GitHub Personal Access Token with packages:write scope"
+echo "5. Add the displayed secrets to your GitHub repository settings"
+echo "6. Follow the GitHub CI/CD guide: githubci.md"
+echo "7. Create ingress manifest files for each webapp to expose via Traefik"
+echo "8. Your Let's Encrypt resolver name is: \033[1;32mletsencrypt\033[0m"
 echo "------------------"
