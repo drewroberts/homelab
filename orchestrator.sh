@@ -163,9 +163,328 @@ else
     log "No K3s restart needed - configuration unchanged."
 fi
 
-log "6. Setting up GitHub CI/CD Prerequisites"
+log "6. Installing PLG Monitoring Stack (Prometheus, Loki, Grafana)"
 
-# 6.1 Install Tailscale for secure CI/CD access
+# 6.1 Create monitoring namespace
+log "Creating monitoring namespace..."
+if ! kubectl get namespace monitoring &>/dev/null; then
+    kubectl create namespace monitoring
+    log "Monitoring namespace created."
+else
+    log "Monitoring namespace already exists."
+fi
+
+# 6.2 Install Prometheus (P in PLG Stack)
+log "Installing Prometheus..."
+PROMETHEUS_MANIFEST="/var/lib/rancher/k3s/server/manifests/prometheus.yaml"
+if [ ! -f "$PROMETHEUS_MANIFEST" ]; then
+    cat > "$PROMETHEUS_MANIFEST" << 'EOF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  serviceName: prometheus
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: prometheus-storage
+          mountPath: /prometheus
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+          - '--storage.tsdb.retention.time=30d'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+  volumeClaimTemplates:
+  - metadata:
+      name: prometheus-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: monitoring
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+    - job_name: 'prometheus'
+      static_configs:
+      - targets: ['localhost:9090']
+    - job_name: 'kubernetes-nodes'
+      kubernetes_sd_configs:
+      - role: node
+    - job_name: 'kubernetes-pods'
+      kubernetes_sd_configs:
+      - role: pod
+EOF
+    log "Prometheus manifest created."
+else
+    log "Prometheus manifest already exists."
+fi
+
+# 6.3 Install Loki (L in PLG Stack)
+log "Installing Loki..."
+LOKI_MANIFEST="/var/lib/rancher/k3s/server/manifests/loki.yaml"
+if [ ! -f "$LOKI_MANIFEST" ]; then
+    cat > "$LOKI_MANIFEST" << 'EOF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  serviceName: loki
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+      - name: loki
+        image: grafana/loki:latest
+        ports:
+        - containerPort: 3100
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: loki-storage
+          mountPath: /loki
+        - name: loki-config
+          mountPath: /etc/loki
+        args:
+          - '-config.file=/etc/loki/loki.yml'
+      volumes:
+      - name: loki-config
+        configMap:
+          name: loki-config
+  volumeClaimTemplates:
+  - metadata:
+      name: loki-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 100Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-service
+  namespace: monitoring
+spec:
+  selector:
+    app: loki
+  ports:
+  - port: 3100
+    targetPort: 3100
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: monitoring
+data:
+  loki.yml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+    ingester:
+      lifecycler:
+        address: 127.0.0.1
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+    schema_config:
+      configs:
+      - from: 2020-05-15
+        store: boltdb
+        object_store: filesystem
+        schema: v11
+        index:
+          prefix: index_
+          period: 168h
+    storage_config:
+      boltdb:
+        directory: /loki/index
+      filesystem:
+        directory: /loki/chunks
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+EOF
+    log "Loki manifest created."
+else
+    log "Loki manifest already exists."
+fi
+
+# 6.4 Install Grafana (G in PLG Stack)
+log "Installing Grafana..."
+GRAFANA_MANIFEST="/var/lib/rancher/k3s/server/manifests/grafana.yaml"
+if [ ! -f "$GRAFANA_MANIFEST" ]; then
+    cat > "$GRAFANA_MANIFEST" << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "homelab123"
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-piechart-panel"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: monitoring
+spec:
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  namespace: monitoring
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+  - hosts:
+    - monitoring.yourdomain.com
+    secretName: grafana-tls
+  rules:
+  - host: monitoring.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-service
+            port:
+              number: 3000
+EOF
+    log "Grafana manifest created."
+else
+    log "Grafana manifest already exists."
+fi
+
+log "Waiting for monitoring stack to deploy..."
+sleep 10
+
+# Wait for pods to be ready
+log "Checking monitoring stack status..."
+kubectl wait --for=condition=Ready pod -l app=prometheus -n monitoring --timeout=120s || log "Prometheus may still be starting..."
+kubectl wait --for=condition=Ready pod -l app=grafana -n monitoring --timeout=120s || log "Grafana may still be starting..."
+kubectl wait --for=condition=Ready pod -l app=loki -n monitoring --timeout=120s || log "Loki may still be starting..."
+
+log "7. Setting up GitHub CI/CD Prerequisites"
+
+# 7.1 Install Tailscale for secure CI/CD access
 if command -v tailscale &> /dev/null; then
     log "Tailscale already installed."
     if systemctl is-active --quiet tailscaled; then
@@ -181,7 +500,7 @@ else
     log "Tailscale installed. Run 'sudo tailscale up' to connect to your tailnet."
 fi
 
-# 6.2 Generate SSH key pair for GitHub Actions (if not exists)
+# 7.2 Generate SSH key pair for GitHub Actions (if not exists)
 CALLING_USER=$(logname)
 USER_HOME=$(eval echo ~$CALLING_USER)
 SSH_KEY_PATH="$USER_HOME/.ssh/github-actions"
@@ -200,7 +519,7 @@ else
     log "GitHub Actions SSH key already exists at: $SSH_KEY_PATH"
 fi
 
-# 6.3 Display GitHub CI setup information
+# 7.3 Display GitHub CI setup information
 log "GitHub CI/CD Setup Information:"
 echo ""
 echo "SSH Key Locations:"
@@ -218,7 +537,18 @@ else
 fi
 echo ""
 
-log "✅ SETUP COMPLETE!"
+log "Monitoring Stack Information:"
+echo ""
+echo "Grafana Dashboard Access:"
+echo "  URL: https://monitoring.yourdomain.com (update domain in grafana-ingress)"
+echo "  Username: admin"
+echo "  Password: homelab123"
+echo ""
+echo "Prometheus: http://prometheus-service.monitoring.svc.cluster.local:9090"
+echo "Loki: http://loki-service.monitoring.svc.cluster.local:3100"
+echo ""
+
+log "✅ SETUP COMPLETE!"5. Consider implementing Phase D monitoring stack (Prometheus, Grafana, Loki)
 echo ""
 echo "--- NEXT STEPS ---"
 echo "1. Connect to Tailscale: sudo tailscale up"
@@ -227,6 +557,8 @@ echo "3. Log out and log back in, OR run: export KUBECONFIG=$USER_HOME/.kube/con
 echo "4. Create GitHub Personal Access Token with packages:write scope"
 echo "5. Add the displayed secrets to your GitHub repository settings"
 echo "6. Follow the GitHub CI/CD guide: githubci.md"
-echo "7. Create ingress manifest files for each webapp to expose via Traefik"
-echo "8. Your Let's Encrypt resolver name is: \033[1;32mletsencrypt\033[0m"
+echo "7. Update monitoring.yourdomain.com in grafana-ingress to your actual domain"
+echo "8. Access Grafana at https://monitoring.yourdomain.com (admin/homelab123)"
+echo "9. Create ingress manifest files for each webapp to expose via Traefik"
+echo "10. Your Let's Encrypt resolver name is: \033[1;32mletsencrypt\033[0m"
 echo "------------------"

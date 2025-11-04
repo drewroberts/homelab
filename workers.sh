@@ -167,9 +167,294 @@ else
     fi
 fi
 
-log "3. Verification"
+log "3. Installing Monitoring Agents"
 
-# 3.1 Check agent status
+# 3.1 Wait for K3s agent to be fully ready before deploying monitoring
+log "Waiting for K3s agent to be fully operational..."
+sleep 15
+
+# 3.2 Deploy Node Exporter DaemonSet for host metrics
+log "Installing Prometheus Node Exporter..."
+NODE_EXPORTER_MANIFEST="/var/lib/rancher/k3s/agent/pod-manifests/node-exporter.yaml"
+mkdir -p "$(dirname "$NODE_EXPORTER_MANIFEST")"
+
+cat > "$NODE_EXPORTER_MANIFEST" << 'EOF'
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: node-exporter
+        image: prom/node-exporter:latest
+        args:
+        - '--path.procfs=/host/proc'
+        - '--path.sysfs=/host/sys'
+        - '--path.rootfs=/host/root'
+        - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+        ports:
+        - containerPort: 9100
+          hostPort: 9100
+          name: metrics
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        - name: root
+          mountPath: /host/root
+          readOnly: true
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: root
+        hostPath:
+          path: /
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+EOF
+
+# 3.3 Deploy Promtail for log collection
+log "Installing Promtail log agent..."
+PROMTAIL_MANIFEST="/var/lib/rancher/k3s/agent/pod-manifests/promtail.yaml"
+
+cat > "$PROMTAIL_MANIFEST" << 'EOF'
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: monitoring
+  labels:
+    app: promtail
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail
+      containers:
+      - name: promtail
+        image: grafana/promtail:latest
+        args:
+        - '-config.file=/etc/promtail/config.yml'
+        ports:
+        - containerPort: 3101
+          name: http-metrics
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/promtail
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: varlogpods
+          mountPath: /var/log/pods
+          readOnly: true
+        securityContext:
+          runAsUser: 0
+      volumes:
+      - name: config
+        configMap:
+          name: promtail-config
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: varlogpods
+        hostPath:
+          path: /var/log/pods
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: monitoring
+data:
+  config.yml: |
+    server:
+      http_listen_port: 3101
+      
+    positions:
+      filename: /tmp/positions.yaml
+      
+    clients:
+      - url: http://loki-service.monitoring.svc.cluster.local:3100/loki/api/v1/push
+        
+    scrape_configs:
+    - job_name: kubernetes-pods-name
+      kubernetes_sd_configs:
+      - role: pod
+      pipeline_stages:
+      - docker: {}
+      relabel_configs:
+      - source_labels:
+        - __meta_kubernetes_pod_label_name
+        target_label: __service__
+      - source_labels:
+        - __meta_kubernetes_pod_node_name
+        target_label: __host__
+      - action: drop
+        regex: ''
+        source_labels:
+        - __service__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - action: replace
+        replacement: $1
+        separator: /
+        source_labels:
+        - __meta_kubernetes_namespace
+        - __service__
+        target_label: job
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_namespace
+        target_label: namespace
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_pod_name
+        target_label: pod
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_pod_container_name
+        target_label: container
+      - replacement: /var/log/pods/*$1/*.log
+        separator: /
+        source_labels:
+        - __meta_kubernetes_pod_uid
+        - __meta_kubernetes_pod_container_name
+        target_label: __path__
+        
+    - job_name: kubernetes-pods-app
+      kubernetes_sd_configs:
+      - role: pod
+      pipeline_stages:
+      - docker: {}
+      relabel_configs:
+      - action: drop
+        regex: .+
+        source_labels:
+        - __meta_kubernetes_pod_label_name
+      - source_labels:
+        - __meta_kubernetes_pod_label_app
+        target_label: __service__
+      - source_labels:
+        - __meta_kubernetes_pod_node_name
+        target_label: __host__
+      - action: drop
+        regex: ''
+        source_labels:
+        - __service__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - action: replace
+        replacement: $1
+        separator: /
+        source_labels:
+        - __meta_kubernetes_namespace
+        - __service__
+        target_label: job
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_namespace
+        target_label: namespace
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_pod_name
+        target_label: pod
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_pod_container_name
+        target_label: container
+      - replacement: /var/log/pods/*$1/*.log
+        separator: /
+        source_labels:
+        - __meta_kubernetes_pod_uid
+        - __meta_kubernetes_pod_container_name
+        target_label: __path__
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: promtail
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: promtail
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: promtail
+subjects:
+- kind: ServiceAccount
+  name: promtail
+  namespace: monitoring
+EOF
+
+log "Monitoring agents configured. They will start once the cluster is fully operational."
+
+log "4. Verification"
+
+# 4.1 Check agent status
 if systemctl is-active --quiet k3s-agent; then
     log "✅ K3s agent is running successfully."
 else
@@ -177,7 +462,7 @@ else
     exit 1
 fi
 
-# 3.2 Show node information
+# 4.2 Show node information
 HOSTNAME=$(hostname)
 log "Worker node '$HOSTNAME' has been configured."
 log "To verify the node joined successfully, run this on your server node:"
@@ -188,5 +473,12 @@ echo ""
 echo "--- VERIFICATION STEPS ---"
 echo "1. On your server node, run: kubectl get nodes"
 echo "2. You should see this worker node ($HOSTNAME) listed as 'Ready'"
-echo "3. Check agent logs if needed: journalctl -u k3s-agent"
+echo "3. Check monitoring agents: kubectl get pods -n monitoring -o wide"
+echo "4. Verify Node Exporter metrics: curl http://$HOSTNAME:9100/metrics"
+echo "5. Check agent logs if needed: journalctl -u k3s-agent"
+echo ""
+echo "--- MONITORING AGENTS INSTALLED ---"
+echo "• Node Exporter: Host metrics collection (CPU, RAM, disk, network)"
+echo "• Promtail: Log shipping to central Loki server"
+echo "• Both agents will appear in Grafana dashboards automatically"
 echo "------------------------"

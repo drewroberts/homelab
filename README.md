@@ -7,6 +7,7 @@ A production-ready Kubernetes homelab built on Arch Linux desktops using K3s, Tr
 - **[Plan](plan.md)** - Complete homelab specification with architecture, security principles, and deployment phases
 - **[Expansion Guide](expansion.md)** - Step-by-step process for setting up the initial server and adding worker nodes
 - **[GitHub CI/CD Setup](githubci.md)** - Automated deployment from GitHub repositories using Podman and Apache containers
+- **[Monitoring Guide](monitoring.md)** - PLG stack management and observability across the cluster
 
 ## Quick Start Scripts
 
@@ -22,6 +23,7 @@ sudo ./orchestrator.sh
 - Sets up K3s server with Traefik ingress controller
 - Configures Let's Encrypt for automatic SSL certificates
 - Sets up kubectl access for the current user
+- Installs PLG monitoring stack (Prometheus, Loki, Grafana)
 
 ### Worker Node Setup
 Run this on additional desktops to join them as worker nodes:
@@ -34,6 +36,7 @@ sudo ./workers.sh <SERVER_URL> <TOKEN>
 - Installs minimal required packages (curl, git, kubectl)
 - Joins the existing K3s cluster as an agent
 - Validates connectivity and cluster membership
+- Installs monitoring agents (Node Exporter, Promtail)
 
 **Getting the required parameters:**
 ```bash
@@ -59,4 +62,3 @@ sudo cat /var/lib/rancher/k3s/server/node-token
 2. Install Tailscale on all nodes for secure cluster management
 3. Set up GitHub CI/CD for automated website deployments (see [GitHub CI/CD Setup](githubci.md))
 4. Deploy your first application using Apache containers
-5. Consider implementing Phase D monitoring stack (Prometheus, Grafana, Loki)
