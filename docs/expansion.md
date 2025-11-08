@@ -1,8 +1,8 @@
-# 🏠 K3s Homelab Expansion Plan: Single Node to Multi-Node
+# K3s Homelab Expansion Plan: Single Node to Multi-Node
 
 This document recaps the process of establishing the initial K3s server on the first Arch Linux desktop and outlines the simple steps for adding worker nodes to expand the homelab cluster.
 
-## 💻 Phase 1: Initial Server Setup (Desktop 1)
+## Phase 1: Initial Server Setup (Desktop 1)
 
 The first desktop runs as the **Control Plane** (server) and the initial **Worker Node** (agent). This phase uses the provided Bash script to automate installation and configuration.
 
@@ -33,7 +33,7 @@ kubectl get nodes
 
 -----
 
-## 📈 Phase 2: Expanding to Worker Nodes (Desktop 2+)
+## Phase 2: Expanding to Worker Nodes (Desktop 2+)
 
 Adding additional desktops is done via a single command, making them **Worker Agents** that join the existing cluster.
 
@@ -75,7 +75,7 @@ The output will now show **multiple nodes** (Desktop 1 as the Server, and the ne
 
 -----
 
-## 🚀 Post-Expansion Benefits
+## Post-Expansion Benefits
 
   * **Load Balancing:** Traefik automatically routes traffic across application Pods running on *all* nodes.
   * **High Availability (HA):** Kubernetes will automatically reschedule application containers to a healthy node if one desktop fails.

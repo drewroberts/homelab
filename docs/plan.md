@@ -1,10 +1,10 @@
-# 🏠 Homelab Specification: K3s, Traefik, & Podman for High Availability
+# Homelab Specification: K3s, Traefik, & Podman for High Availability
 
-## 📜 HOMELAB CONSTITUTION: ARCHITECTURE & PRINCIPLES
+## HOMELAB CONSTITUTION: ARCHITECTURE & PRINCIPLES
 
 This document defines the high-level architecture, security, and operational principles for your self-hosted Kubernetes environment, supporting multi-tenancy and scaling.
 
-### 1. 🌐 Architecture Overview
+### 1. Architecture Overview
 
 The system is defined as a **single logical K3s cluster** spanning multiple physical Arch Linux desktops, providing High Availability (HA) and simplified scaling.
 
@@ -21,7 +21,7 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 ---
 
-### 2. 🛡️ Security and Access Principles
+### 2. Security and Access Principles
 
 * **Zero Trust Access:** Management of the K3s API (`kubectl`) and SSH access to the nodes must only occur over the **Tailscale** VPN layer. The public AT&T router will **only** forward ports **80** and **443** to the primary **Control Plane Node** (Desktop 1).
 * **Rootless CI/CD:** All container image builds (via **Podman**) will be performed in a rootless environment. All secrets (registry credentials, SSH keys) must be stored in **GitHub Secrets**, not in code.
@@ -31,7 +31,7 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 ---
 
-### 3. 🔄 Spec-Driven Development (GitOps Lite)
+### 3. Spec-Driven Development (GitOps Lite)
 
 * **Source of Truth:** All infrastructure and application configuration (Kubernetes YAML) will reside in a version-controlled Git repository (`homelab-config`).
 * **Deployment Policy:** Changes to the cluster state are only permitted via **`kubectl apply`** of manifest files from the central Git repository, ensuring the current state matches the desired state defined in code.
@@ -39,7 +39,7 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 ---
 
-## 📋 HOMELAB PLAN: SETUP & CI/CD WORKFLOW
+## HOMELAB PLAN: SETUP & CI/CD WORKFLOW
 
 ### Phase A: Cluster Bootstrap and Initial Setup
 
@@ -87,7 +87,7 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 | **D.6** | **AlertManager** | **Configure Alerting** | Set up AlertManager with webhook integrations (Discord/Slack) for critical cluster events (node down, high resource usage, pod crashes). |
 | **D.7** | **Ingress Rules** | **Expose Dashboards** | Create Traefik ingress rules for secure access to Grafana (`monitoring.drewroberts.com`) over Tailscale VPN only. |
 
-#### 📊 Monitoring Architecture
+#### Monitoring Architecture
 
 ```yaml
 # FILE: monitoring/prometheus/deployment.yaml
@@ -239,7 +239,7 @@ spec:
           storage: 100Gi
 ```
 
-#### 🚨 Key Monitoring Metrics & Alerts
+#### Key Monitoring Metrics & Alerts
 
 | Category | Metric | Alert Threshold | Action |
 | :--- | :--- | :--- | :--- |
@@ -250,7 +250,7 @@ spec:
 | **Laravel App** | `traefik_service_request_duration_seconds` | Response time > 2s | Scale up replicas, check database |
 | **Database** | `mysql_up` | MySQL down > 30 seconds | Failover to backup, restore from snapshot |
 
-#### 📈 Pre-configured Dashboards
+#### Pre-configured Dashboards
 
 1. **Cluster Overview**: Node status, resource utilization, pod distribution
 2. **Node Details**: Per-node CPU, memory, disk, network metrics  
@@ -261,7 +261,7 @@ spec:
 
 ---
 
-## 💻 Laravel Multi-Tenant Deployment Specification
+## Laravel Multi-Tenant Deployment Specification
 
 ```yaml
 # FILE: apps/laravel-multitenant/deployment.yaml
