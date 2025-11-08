@@ -8,24 +8,28 @@ This document defines the high-level architecture, security, and operational pri
 
 The system is defined as a **single logical K3s cluster** spanning multiple physical Arch Linux desktops, providing High Availability (HA) and simplified scaling.
 
-| Component | Role | Desktop(s) |
+| Component | Role | Technology |
 | :--- | :--- | :--- |
-| **Orchestrator** | **K3s (Lightweight Kubernetes)** | All Nodes |
-| **Reverse Proxy / Ingress** | **Traefik** (K3s built-in Ingress Controller) | All Nodes (via DaemonSet) |
-| **Container Runtime** | **Containerd** (K3s Default) | All Nodes |
-| **Image Builder** | **Podman** (Used exclusively in CI/CD pipeline) | CI Runner / Local Development |
-| **Cluster Access** | **Tailscale** (Zero Trust Mesh VPN) | All Nodes |
-| **Stateful Data** | **MySQL** (Separate StatefulSet with dedicated storage) | Dedicated Worker Node(s) |
+| **Container Orchestrator** | Core cluster management | **K3s** |
+| **Container Runtime** | Runs containers on nodes | **Containerd** |
+| **Reverse Proxy / Ingress** | Manages external traffic & SSL | **Traefik** |
+| **Observability** | Metrics, logs, and dashboards | **Prometheus, Loki, Grafana** |
+| **Deployment Manager** | Manages complex applications | **Helm** |
+| **Persistent Storage** | Provides stateful storage | **NFS** |
+| **Stateful Database** | Relational data storage | **MySQL** |
+| **Secure Access** | Zero Trust network layer | **Tailscale** |
+| **Image Builder** | Builds container images in CI | **Podman** |
 
 ---
 
 ### 2. Security and Access Principles
 
-* **Zero Trust Access:** Management of the K3s API (`kubectl`) and SSH access to the nodes must only occur over the **Tailscale** VPN layer. The public AT&T router will **only** forward ports **80** and **443** to the primary **Control Plane Node** (Desktop 1).
-* **Rootless CI/CD:** All container image builds (via **Podman**) will be performed in a rootless environment. All secrets (registry credentials, SSH keys) must be stored in **GitHub Secrets**, not in code.
-* **Principle of Least Privilege:** Pods will run as non-root users whenever possible. Deployments will use resource **requests and limits** to prevent "noisy neighbor" issues.
-* **Master Node Isolation:** The Control Plane Node will retain its default Kubernetes **Taint** (`node-role.kubernetes.io/control-plane:NoSchedule`) to prevent general application Pods from consuming critical resources.
-* **Database Isolation:** Stateful workloads (MySQL) will use **Taints and Tolerations** to ensure they are scheduled only on dedicated, stable Worker Nodes, separate from the Control Plane.
+*   **Zero Trust Access:** Management of the K3s API (`kubectl`) and SSH access to the nodes must only occur over the **Tailscale** VPN layer. The `orchestrator.sh` script automates the installation of Tailscale and the generation of a dedicated SSH key for CI/CD to facilitate this.
+*   **Automated Secret Management:** Hardcoded credentials are not permitted. The automation scripts (`orchestrator.sh` and `database.sh`) automatically generate strong, random passwords for Grafana and MySQL, storing them securely in Kubernetes Secrets.
+*   **Rootless CI/CD:** All container image builds (via **Podman**) will be performed in a rootless environment. All secrets (registry credentials, SSH keys) must be stored in **GitHub Secrets**, not in code.
+*   **Principle of Least Privilege:** Pods will run as non-root users whenever possible. Deployments will use resource **requests and limits** to prevent "noisy neighbor" issues.
+*   **Master Node Isolation:** The Control Plane Node will retain its default Kubernetes **Taint** (`node-role.kubernetes.io/control-plane:NoSchedule`) to prevent general application Pods from consuming critical resources.
+*   **Database Isolation:** Stateful workloads (MySQL) will use **Taints and Tolerations** to ensure they are scheduled only on dedicated, stable Worker Nodes. The `database.sh` script automates this process.
 
 ---
 
@@ -43,7 +47,13 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 | Step | Component | Action | Details |
 | :--- | :--- | :--- | :--- |
-| **A.1** | **Host OS** | **Prepare Arch Linux** | Disable swap: `sudo swapoff -a` and remove entry from `/etc/fstab`. Install `curl`, `git`, `kubectl`, `podman`, `tailscale`, `helm`, and `nfs-utils`. |
+| **A.1** | **Host OS** | **Prepare Arch Linux** | Disable swap: `sudo swapoff -a### 3. Spec-Driven Development (GitOps Lite)
+
+* **Source of Truth:** All infrastructure and application configuration (Kubernetes YAML) will reside in a version-controlled Git repository (`homelab-config`).
+* **Deployment Policy:** Changes to the cluster state are only permitted via **`kubectl apply`** of manifest files from the central Git repository, ensuring the current state matches the desired state defined in code.
+* **Zero-Downtime:** Application updates will leverage the native Kubernetes **Rolling Update** strategy within the Deployment manifest. New Pods must be **Ready** before old Pods are terminated.
+
+---` and remove entry from `/etc/fstab`. Install `curl`, `git`, `kubectl`, `podman`, `tailscale`, `helm`, and `nfs-utils`. |
 | **A.2** | **Networking** | **Install Tailscale** | Install the Tailscale client on **all** desktops for internal cluster communication security. |
 | **A.3** | **K3s Server** | **Install Control Plane (Desktop 1)** | Run the K3s installation script. This desktop will be the single point of management. |
 | **A.4** | **K3s Config** | **Configure `kubectl`** | `sudo chmod 644 /etc/rancher/k3s/k3s.yaml` and copy the file to `~/.kube/config` on your management machine. |
