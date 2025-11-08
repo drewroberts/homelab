@@ -41,6 +41,21 @@ Forget manually editing `ConfigMaps` or `Deployments`. The **primary method of c
 
 ---
 
+## Monitoring the MySQL Database
+
+To provide visibility into the health and performance of the MySQL database, the `orchestrator.sh` script also deploys the `prometheus-mysql-exporter`.
+
+-   **What it is:** A dedicated exporter that connects to the MySQL instance, queries it for key performance indicators (KPIs), and exposes them as Prometheus metrics.
+-   **How it works:**
+    1.  It is deployed as a Helm release into the `monitoring` namespace.
+    2.  It automatically discovers the `mysql` service in the `database` namespace.
+    3.  It securely authenticates using the `mysql-secret` that was created by the `database.sh` script.
+    4.  A `ServiceMonitor` is created, which tells the main Prometheus instance to automatically start scraping metrics from this exporter.
+
+This integration means that as soon as you deploy the database and run the orchestrator script, you can start building dashboards in Grafana to monitor query performance, connection counts, and other critical database metrics.
+
+---
+
 ## Accessing Services
 
 ### Grafana Web Interface

@@ -260,8 +260,42 @@ EOF
     log "PLG monitoring stack deployment is complete."
 }
 
+deploy_mysql_exporter() {
+    log "6. Deploying MySQL Exporter for Prometheus"
+
+    log "Checking for 'database' namespace and 'mysql-secret'..."
+    if ! kubectl get namespace database >/dev/null 2>&1; then
+        log "WARNING: 'database' namespace not found. Skipping MySQL exporter deployment."
+        log "         Run 'database.sh' to create the database and its secret first."
+        return
+    fi
+
+    if ! kubectl get secret mysql-secret -n database >/dev/null 2>&1; then
+        log "WARNING: 'mysql-secret' not found in 'database' namespace. Skipping MySQL exporter deployment."
+        log "         Run 'database.sh' to create the database and its secret first."
+        return
+    fi
+
+    log "Deploying prometheus-mysql-exporter via Helm..."
+    # The repo is already added in deploy_plg_stack, but let's ensure it's here for modularity
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+    helm repo update
+
+    # Use `helm upgrade --install` for idempotent deployment
+    # We configure it to connect to the mysql service and use the existing secret.
+    helm upgrade --install mysql-exporter prometheus-community/prometheus-mysql-exporter \
+      --namespace monitoring \
+      --set mysql.host=mysql.database \
+      --set mysql.user=root \
+      --set mysql.existingSecret=database/mysql-secret \
+      --set serviceMonitor.enabled=true \
+      --wait
+
+    log "MySQL Exporter deployment is complete."
+}
+
 setup_github_ci() {
-    log "6. Setting up GitHub CI/CD Prerequisites"
+    log "7. Setting up GitHub CI/CD Prerequisites"
 
     # Install Tailscale for secure CI/CD access
     if command -v tailscale &> /dev/null; then
@@ -360,6 +394,7 @@ main() {
     
     # Phase B: Monitoring Stack
     deploy_plg_stack
+    deploy_mysql_exporter
     
     # GitHub CI/CD Setup
     setup_github_ci
