@@ -13,7 +13,7 @@ log() {
 }
 
 error() {
-    echo -e "\n\033[1;31m❌ ERROR: $1\033[0m"
+    echo -e "\n\033[1;31m✗ ERROR: $1\033[0m"
 }
 
 check_root() {
@@ -75,7 +75,7 @@ K3S_TOKEN="$2"
 check_root
 validate_inputs
 
-log "🏠 K3s Worker Node Setup Script"
+log "K3s Worker Node Setup Script"
 log "Server URL: $K3S_SERVER_URL"
 log "Token: ${K3S_TOKEN:0:10}... (truncated for security)"
 
@@ -456,7 +456,7 @@ log "4. Verification"
 
 # 4.1 Check agent status
 if systemctl is-active --quiet k3s-agent; then
-    log "✅ K3s agent is running successfully."
+    log "✓ K3s agent is running successfully."
 else
     error "K3s agent is not running."
     exit 1
@@ -468,7 +468,7 @@ log "Worker node '$HOSTNAME' has been configured."
 log "To verify the node joined successfully, run this on your server node:"
 log "  kubectl get nodes"
 
-log "✅ WORKER NODE SETUP COMPLETE!"
+log "✓ WORKER NODE SETUP COMPLETE!"
 echo ""
 echo "--- VERIFICATION STEPS ---"
 echo "1. On your server node, run: kubectl get nodes"

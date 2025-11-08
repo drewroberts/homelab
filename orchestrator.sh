@@ -548,7 +548,7 @@ echo "Prometheus: http://prometheus-service.monitoring.svc.cluster.local:9090"
 echo "Loki: http://loki-service.monitoring.svc.cluster.local:3100"
 echo ""
 
-log "✅ SETUP COMPLETE!"5. Consider implementing Phase D monitoring stack (Prometheus, Grafana, Loki)
+log "✓ SETUP COMPLETE!"5. Consider implementing Phase D monitoring stack (Prometheus, Grafana, Loki)
 echo ""
 echo "--- NEXT STEPS ---"
 echo "1. Connect to Tailscale: sudo tailscale up"
