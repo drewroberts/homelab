@@ -47,9 +47,7 @@ This homelab follows a simple, robust architecture. A text-based diagram helps i
 >
 > **You must manually deploy an NFS provisioner manifest after the orchestrator is running.**
 >
-> **Why is this manual?** Every user's NFS server setup is different (IP address, share path).
->
-> **Recommendation:** A popular and easy-to-use option is the **`nfs-subdir-external-provisioner`**. You can find Helm charts and manifests for it online. You will need to configure it with your NFS server's IP and the path to your NFS share.
+> For a detailed explanation of why this is necessary and a step-by-step guide, please see the **[NFS Setup Guide](nfs.md)**.
 
 ---
 
@@ -63,7 +61,7 @@ Update the `EMAIL` variable in `orchestrator.sh`. This is used for Let's Encrypt
 ### 2. Execution
 Simply run the orchestrator script with `sudo`. It handles the entire idempotent setup.
 ```bash
-sudo ./orchestrator.sh
+sudo orchestrator.sh
 ```
 The script automates:
 *   **System Preparation:** Disables swap, installs `curl`, `git`, `kubectl`, `podman`, `helm`, `nfs-utils`.
@@ -104,10 +102,10 @@ On each new Arch desktop you want to add, run the `workers.sh` script. It automa
 
 ```bash
 # Execute this command on the new worker node. Replace placeholders.
-sudo ./workers.sh <SERVER_URL> <YOUR_CLUSTER_TOKEN>
+sudo workers.sh <SERVER_URL> <YOUR_CLUSTER_TOKEN>
 
 # Example:
-sudo ./workers.sh https://192.168.1.10:6443 K10abc123def456...
+sudo workers.sh https://192.168.1.10:6443 K10abc123def456...
 ```
 
 ### 3. Final Verification
@@ -126,14 +124,14 @@ With your cluster running, you can deploy a database using the `database.sh` scr
 #### Option 1: Deploy to the Control Plane (Single-Node Setup)
 If you are running a single-node cluster, or don't need to isolate the database.
 ```bash
-sudo ./database.sh
+sudo database.sh
 ```
 
 #### Option 2: Deploy to a Dedicated Worker Node
 This is the recommended approach for multi-node clusters to ensure performance isolation.
 ```bash
 # This command taints the node and deploys MySQL to it
-sudo ./database.sh <worker-node-name>
+sudo database.sh <worker-node-name>
 ```
 
 **How does isolation work?** The script automatically applies a **taint** to the specified worker node. This taint prevents general workloads from being scheduled there. It then configures the MySQL `StatefulSet` with a **toleration** and a **nodeAffinity** rule, ensuring that the database pods can *only* run on that specific, dedicated node.
@@ -149,6 +147,6 @@ If you initially deployed the database to the orchestrator and later wish to mov
 1.  **Maintenance Mode:** Stop applications from writing to the database.
 2.  **Backup Data:** Use `kubectl exec` to access the running MySQL pod and `mysqldump` to create a logical backup (`.sql` file). Copy this file to your local machine with `kubectl cp`.
 3.  **Tear Down Old Database:** Delete the old MySQL `StatefulSet` and `PersistentVolumeClaim` in the `database` namespace.
-4.  **Deploy New Database:** Run `database.sh` targeting your new dedicated worker node (e.g., `sudo ./database.sh worker-db-01`).
+4.  **Deploy New Database:** Run `database.sh` targeting your new dedicated worker node (e.g., `sudo database.sh worker-db-01`).
 5.  **Restore Data:** Use `kubectl cp` to copy your `.sql` backup file into the new MySQL pod, then `kubectl exec` into the pod and use the `mysql` client to import the data.
 6.  **Verify:** Confirm the data is restored and take your applications out of maintenance mode.
