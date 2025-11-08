@@ -53,29 +53,7 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 ---
 
-### Phase B: Scaling Out and Database Deployment
-
-| Step | Component | Action | Details |
-| :--- | :--- | :--- | :--- |
-| **B.1** | **Join Cluster** | **Add Worker Agent (Desktop 2+)** | On the second desktop, use the token retrieved from Desktop 1 to join the cluster. |
-| **B.2** | **Storage** | **Set up NFS/Storage** | Configure a shared **Persistent Volume** solution (e.g., NFS share) accessible by all nodes for storing application files and database data. |
-| **B.3** | **Database Node** | **Taint Node** | Apply a taint to designated database Worker Node(s) to isolate MySQL: `kubectl taint nodes worker-db-01 app-type=db:NoSchedule`. |
-| **B.4** | **MySQL Deployment** | **Deploy StatefulSet** | Deploy MySQL using a **StatefulSet** with a **PersistentVolumeClaim** and matching **Tolerations** and **Node Affinity** to ensure it only runs on the dedicated DB node(s). |
-
----
-
-### Phase C: CI/CD Workflow (Podman & GitHub Actions)
-
-| Stage | Tool | Steps |
-| :--- | :--- | :--- |
-| **1. Build** (CI) | **GitHub Actions + Podman** | 1. `podman build` the new Laravel image with the commit SHA as the tag. 2. `podman push` the tagged image to the GitHub Container Registry (`ghcr.io`). |
-| **2. Deploy** (CD) | **GitHub Actions + SSH** | 1. **SSH** into the K3s Control Plane (Desktop 1) using GitHub Secrets. 2. Execute a deployment script to **patch the Deployment** manifest. |
-| **3. Cluster Update** | **K3s/kubectl** | Run the command to initiate a rolling update: `kubectl set image deployment/laravel-multitenant laravel-app=ghcr.io/<REPO>:<NEW_SHA>`. |
-| **4. Ingress** | **Traefik** | Traefik performs its routine, directing traffic to the healthy new Pods and terminating the old ones, completing the **zero-downtime deployment**. |
-
----
-
-### Phase D: Automated Monitoring & Observability
+### Phase B: Automated Monitoring & Observability
 
 The PLG (Prometheus, Loki, Grafana) stack is deployed automatically by the `orchestrator.sh` script, ensuring a complete, production-ready monitoring solution is available immediately after cluster bootstrap. This process is fully idempotent and managed via version-controlled configuration.
 
@@ -87,6 +65,28 @@ The PLG (Prometheus, Loki, Grafana) stack is deployed automatically by the `orch
 *   **Idempotent & Secure**: The deployment creates a `monitoring` namespace, securely generates a one-time Grafana admin password, and uses `helm upgrade --install` to ensure the process is safely re-runnable.
 
 This automated approach replaces the previous manual, multi-step process, integrating observability directly into the cluster's core setup.
+
+---
+
+### Phase C: Scaling Out and Database Deployment
+
+| Step | Component | Action | Details |
+| :--- | :--- | :--- | :--- |
+| **C.1** | **Join Cluster** | **Add Worker Agent (Desktop 2+)** | On the second desktop, use the token retrieved from Desktop 1 to join the cluster. |
+| **C.2** | **Storage** | **Set up NFS/Storage** | Configure a shared **Persistent Volume** solution (e.g., NFS share) accessible by all nodes for storing application files and database data. |
+| **C.3** | **Database Node** | **Taint Node** | Apply a taint to designated database Worker Node(s) to isolate MySQL: `kubectl taint nodes worker-db-01 app-type=db:NoSchedule`. |
+| **C.4** | **MySQL Deployment** | **Deploy StatefulSet** | Deploy MySQL using a **StatefulSet** with a **PersistentVolumeClaim** and matching **Tolerations** and **Node Affinity** to ensure it only runs on the dedicated DB node(s). |
+
+---
+
+### Phase D: CI/CD Workflow (Podman & GitHub Actions)
+
+| Stage | Tool | Steps |
+| :--- | :--- | :--- |
+| **1. Build** (CI) | **GitHub Actions + Podman** | 1. `podman build` the new Laravel image with the commit SHA as the tag. 2. `podman push` the tagged image to the GitHub Container Registry (`ghcr.io`). |
+| **2. Deploy** (CD) | **GitHub Actions + SSH** | 1. **SSH** into the K3s Control Plane (Desktop 1) using GitHub Secrets. 2. Execute a deployment script to **patch the Deployment** manifest. |
+| **3. Cluster Update** | **K3s/kubectl** | Run the command to initiate a rolling update: `kubectl set image deployment/laravel-multitenant laravel-app=ghcr.io/<REPO>:<NEW_SHA>`. |
+| **4. Ingress** | **Traefik** | Traefik performs its routine, directing traffic to the healthy new Pods and terminating the old ones, completing the **zero-downtime deployment**. |
 
 ---
 
