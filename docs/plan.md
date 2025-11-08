@@ -17,8 +17,6 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 | **Cluster Access** | **Tailscale** (Zero Trust Mesh VPN) | All Nodes |
 | **Stateful Data** | **MySQL** (Separate StatefulSet with dedicated storage) | Dedicated Worker Node(s) |
 
-
-
 ---
 
 ### 2. Security and Access Principles
