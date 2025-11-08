@@ -43,7 +43,7 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 | Step | Component | Action | Details |
 | :--- | :--- | :--- | :--- |
-| **A.1** | **Host OS** | **Prepare Arch Linux** | Disable swap: `sudo swapoff -a` and remove entry from `/etc/fstab`. Install `curl`, `git`, `kubectl`, `podman`, `tailscale`. |
+| **A.1** | **Host OS** | **Prepare Arch Linux** | Disable swap: `sudo swapoff -a` and remove entry from `/etc/fstab`. Install `curl`, `git`, `kubectl`, `podman`, `tailscale`, `helm`, and `nfs-utils`. |
 | **A.2** | **Networking** | **Install Tailscale** | Install the Tailscale client on **all** desktops for internal cluster communication security. |
 | **A.3** | **K3s Server** | **Install Control Plane (Desktop 1)** | Run the K3s installation script. This desktop will be the single point of management. |
 | **A.4** | **K3s Config** | **Configure `kubectl`** | `sudo chmod 644 /etc/rancher/k3s/k3s.yaml` and copy the file to `~/.kube/config` on your management machine. |
@@ -78,6 +78,11 @@ This automated approach replaces the previous manual, multi-step process, integr
 ---
 
 ### Phase D: CI/CD Workflow (Podman & GitHub Actions)
+
+The `orchestrator.sh` script automates the initial setup on the control-plane node required for a secure CI/CD pipeline.
+
+*   **Automated Host Preparation**: The script idempotently installs Tailscale for secure, out-of-band network access and generates a unique SSH key pair (`~/.ssh/github-actions`) for the GitHub Actions runner to use.
+*   **Secure by Default**: This ensures that CI/CD access to the cluster does not require exposing SSH to the public internet. The script outputs the necessary secrets to be added to your GitHub repository.
 
 | Stage | Tool | Steps |
 | :--- | :--- | :--- |
