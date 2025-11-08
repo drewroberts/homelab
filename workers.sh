@@ -23,7 +23,7 @@ check_root() {
 }
 
 show_usage() {
-    echo "Usage: sudo ./workers.sh <SERVER_URL> <TOKEN>"
+    echo "Usage: sudo workers.sh <SERVER_URL> <TOKEN>"
     echo ""
     echo "Arguments:"
     echo "  SERVER_URL    The K3s server URL (e.g., https://192.168.1.10:6443)"
@@ -34,7 +34,7 @@ show_usage() {
     echo "  2. Token: Run 'sudo cat /var/lib/rancher/k3s/server/node-token' on the server"
     echo ""
     echo "Example:"
-    echo "  sudo ./workers.sh https://192.168.1.10:6443 K10abc123def456..."
+    echo "  sudo workers.sh https://192.168.1.10:6443 K10abc123def456..."
 }
 
 validate_inputs() {

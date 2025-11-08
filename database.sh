@@ -24,7 +24,7 @@ check_root() {
 }
 
 show_usage() {
-    echo "Usage: sudo ./deploy-database.sh [NODE_NAME]"
+    echo "Usage: sudo deploy-database.sh [NODE_NAME]"
     echo ""
     echo "Deploys a MySQL StatefulSet to your K3s cluster."
     echo ""
@@ -35,10 +35,10 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  # Deploy to a dedicated worker node named 'worker-db-01'"
-    echo "  sudo ./deploy-database.sh worker-db-01"
+    echo "  sudo deploy-database.sh worker-db-01"
     echo ""
     echo "  # Deploy to the control-plane node (for single-node clusters)"
-    echo "  sudo ./deploy-database.sh"
+    echo "  sudo deploy-database.sh"
 }
 
 # --- Core Functions ---

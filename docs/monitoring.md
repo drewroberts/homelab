@@ -35,7 +35,7 @@ Forget manually editing `ConfigMaps` or `Deployments`. The **primary method of c
 
 2.  **Apply the Changes:** Re-run the orchestrator script.
     ```bash
-    sudo ./orchestrator.sh
+    sudo orchestrator.sh
     ```
     The script will use `helm upgrade --install` to intelligently apply only the changes you made, without disrupting the running services.
 

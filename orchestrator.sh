@@ -334,7 +334,7 @@ display_completion_info() {
     echo "--- NEXT STEPS ---"
     echo "1. Connect to Tailscale: sudo tailscale up"
     echo "2. Set up Port Forwarding (80/443) on your router to this machine"
-    echo "3. Deploy a database with: sudo ./database.sh [NODE_NAME]"
+    echo "3. Deploy a database with: sudo database.sh [NODE_NAME]"
     echo "4. Log out and log back in, OR run: export KUBECONFIG=$USER_HOME/.kube/config"
     echo "5. Create GitHub Personal Access Token with packages:write scope"
     echo "6. Add the displayed secrets to your GitHub repository settings"

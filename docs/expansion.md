@@ -28,7 +28,7 @@ Simply run the orchestrator script with `sudo`. It will handle the entire setup 
 
 | Step | Action | Command |
 | :--- | :--- | :--- |
-| **1. Execute** | **Run Orchestrator Script** | `sudo ./orchestrator.sh` |
+| **1. Execute** | **Run Orchestrator Script** | `sudo orchestrator.sh` |
 
 The script automates the following services:
 *   **System Preparation:** Disables swap and installs all necessary tools (`curl`, `git`, `kubectl`, `podman`, `helm`, `nfs-utils`).
@@ -75,10 +75,10 @@ On each new Arch desktop you want to add, use the `workers.sh` script. It automa
 
 ```bash
 # Execute this command on the new worker node. Replace placeholders.
-sudo ./workers.sh <SERVER_URL> <YOUR_CLUSTER_TOKEN>
+sudo workers.sh <SERVER_URL> <YOUR_CLUSTER_TOKEN>
 
 # Example:
-sudo ./workers.sh https://192.168.1.10:6443 K10abc123def456...
+sudo workers.sh https://192.168.1.10:6443 K10abc123def456...
 ```
 
 The script will validate your inputs and test connectivity before attempting to join the cluster.
@@ -114,3 +114,18 @@ sudo database.sh <worker-node-name>
 ```
 
 This isolates your database on a dedicated machine for stable performance.
+
+---
+
+## Advanced: Migrating the Database to a Dedicated Worker
+
+If you initially deployed the database to the orchestrator node and later wish to move it to a dedicated worker, you must perform a migration to preserve your data. The safest method is a backup and restore procedure.
+
+**High-Level Migration Steps:**
+
+1.  **Maintenance Mode:** Place your applications in maintenance mode to prevent new data from being written to the database.
+2.  **Backup Data:** Use `kubectl exec` to access the running MySQL pod and `mysqldump` to create a logical backup of your databases into a `.sql` file. Copy this file to your local machine with `kubectl cp`.
+3.  **Tear Down Old Database:** Delete the old MySQL `StatefulSet` and `PersistentVolumeClaim` in the `database` namespace. This frees up the resources.
+4.  **Deploy New Database:** Run the `database.sh` script, targeting your new dedicated worker node (e.g., `sudo database.sh worker-db-01`). This creates a fresh, empty database instance on the correct node.
+5.  **Restore Data:** Use `kubectl cp` to copy your `.sql` backup file into the new MySQL pod, then `kubectl exec` into the pod and use the `mysql` client to import the data.
+6.  **Verify:** Confirm the data is restored correctly and take your applications out of maintenance mode.
