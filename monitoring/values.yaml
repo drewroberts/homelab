@@ -62,6 +62,35 @@ grafana:
       access: proxy
       isDefault: false
 
+# --- Promtail Configuration ---
+# Deploys the Promtail agent as a DaemonSet to collect logs from all nodes.
+promtail:
+  enabled: true
+  config:
+    # Point Promtail to the existing standalone Loki service
+    clients:
+      - url: http://loki.monitoring:3100/loki/api/v1/push
+    # Scrape configurations for Promtail
+    snippets:
+      # Add an extra scrape config to get logs from the host's systemd journal
+      extraScrapeConfigs: |
+        - job_name: journal
+          journal:
+            max_age: 12h
+            path: /var/log/journal
+          relabel_configs:
+            - source_labels: ['__journal__systemd_unit']
+              target_label: 'unit'
+      # Mount the host's /var/log directory to access the journal
+      extraVolumes:
+        - name: journal
+          hostPath:
+            path: /var/log/journal
+      extraVolumeMounts:
+        - name: journal
+          mountPath: /var/log/journal
+          readOnly: true
+
 # --- Alertmanager Configuration ---
 alertmanager:
   alertmanagerSpec:
