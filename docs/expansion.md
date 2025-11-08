@@ -100,3 +100,17 @@ The output will now show **multiple nodes** (Desktop 1 as the `control-plane,mas
   * **Load Balancing:** Traefik automatically routes traffic across application Pods running on *all* available nodes.
   * **High Availability (HA):** Kubernetes will automatically reschedule application containers to a healthy node if one desktop fails.
   * **Scaling:** You now have the combined CPU and RAM resources of all machines available for your application replicas.
+
+---
+
+## Next Steps: Deploying Stateful Workloads
+
+With your cluster expanded, you can now deploy stateful applications like a database. Use the `database.sh` script to deploy MySQL.
+
+**To deploy the database to a specific worker node:**
+```bash
+# Taint the node and deploy MySQL to it
+sudo database.sh <worker-node-name>
+```
+
+This isolates your database on a dedicated machine for stable performance.

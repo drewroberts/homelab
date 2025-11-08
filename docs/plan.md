@@ -68,12 +68,12 @@ This automated approach replaces the previous manual, multi-step process, integr
 
 ### Phase C: Scaling Out and Database Deployment
 
+This phase covers adding more compute capacity to the cluster and deploying the stateful MySQL database using the provided automation script.
+
 | Step | Component | Action | Details |
 | :--- | :--- | :--- | :--- |
-| **C.1** | **Join Cluster** | **Add Worker Agent (Desktop 2+)** | On the second desktop, use the token retrieved from Desktop 1 to join the cluster. |
-| **C.2** | **Storage** | **Set up NFS/Storage** | Configure a shared **Persistent Volume** solution (e.g., NFS share) accessible by all nodes for storing application files and database data. |
-| **C.3** | **Database Node** | **Taint Node** | Apply a taint to designated database Worker Node(s) to isolate MySQL: `kubectl taint nodes worker-db-01 app-type=db:NoSchedule`. |
-| **C.4** | **MySQL Deployment** | **Deploy StatefulSet** | Deploy MySQL using a **StatefulSet** with a **PersistentVolumeClaim** and matching **Tolerations** and **Node Affinity** to ensure it only runs on the dedicated DB node(s). |
+| **C.1** | **Join Cluster** | **Add Worker Agent (Desktop 2+)** | Use the `workers.sh` script to add new machines to the cluster, expanding its resource pool. |
+| **C.2** | **Deploy Database** | **Run `database.sh` script** | Use the `database.sh` script to deploy a MySQL `StatefulSet`. The script can target a dedicated worker node for isolation or deploy to the control-plane for single-node setups. |
 
 ---
 
