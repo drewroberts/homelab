@@ -29,11 +29,11 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 ---
 
-### 3. Spec-Driven Development (GitOps Lite)
+### 3. Automated and Idempotent Management
 
-* **Source of Truth:** All infrastructure and application configuration (Kubernetes YAML) will reside in a version-controlled Git repository (`homelab-config`).
-* **Deployment Policy:** Changes to the cluster state are only permitted via **`kubectl apply`** of manifest files from the central Git repository, ensuring the current state matches the desired state defined in code.
-* **Zero-Downtime:** Application updates will leverage the native Kubernetes **Rolling Update** strategy within the Deployment manifest. New Pods must be **Ready** before old Pods are terminated.
+*   **Source of Truth:** The desired state of the cluster is defined within this Git repository. It combines powerful automation scripts (`orchestrator.sh`, `database.sh`), Helm configuration (`monitoring/values.yaml`), and embedded Kubernetes manifests.
+*   **Deployment Policy:** Changes to the cluster's core infrastructure are made by executing the blessed automation scripts. This ensures all changes are consistent, repeatable, and benefit from the idempotency built into the tools. Manual `kubectl` commands should be reserved for inspection and debugging, not for configuration.
+*   **Zero-Downtime:** Application updates will leverage the native Kubernetes **Rolling Update** strategy within the Deployment manifest. New Pods must be **Ready** before old Pods are terminated.
 
 ---
 
