@@ -47,17 +47,12 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 | Step | Component | Action | Details |
 | :--- | :--- | :--- | :--- |
-| **A.1** | **Host OS** | **Prepare Arch Linux** | Disable swap: `sudo swapoff -a### 3. Spec-Driven Development (GitOps Lite)
-
-* **Source of Truth:** All infrastructure and application configuration (Kubernetes YAML) will reside in a version-controlled Git repository (`homelab-config`).
-* **Deployment Policy:** Changes to the cluster state are only permitted via **`kubectl apply`** of manifest files from the central Git repository, ensuring the current state matches the desired state defined in code.
-* **Zero-Downtime:** Application updates will leverage the native Kubernetes **Rolling Update** strategy within the Deployment manifest. New Pods must be **Ready** before old Pods are terminated.
-
----` and remove entry from `/etc/fstab`. Install `curl`, `git`, `kubectl`, `podman`, `tailscale`, `helm`, and `nfs-utils`. |
-| **A.2** | **Networking** | **Install Tailscale** | Install the Tailscale client on **all** desktops for internal cluster communication security. |
-| **A.3** | **K3s Server** | **Install Control Plane (Desktop 1)** | Run the K3s installation script. This desktop will be the single point of management. |
-| **A.4** | **K3s Config** | **Configure `kubectl`** | `sudo chmod 644 /etc/rancher/k3s/k3s.yaml` and copy the file to `~/.kube/config` on your management machine. |
-| **A.5** | **Traefik SSL** | **Enable Let's Encrypt** | Create a `HelmChartConfig` manifest override to enable the ACME resolver for Traefik. |
+| **A.1** | **Host OS** | **Prepare Arch Linux** | Disable swap and install `curl`, `git`, `kubectl`, `podman`, `tailscale`, `helm`, and `nfs-utils`. This is automated by `orchestrator.sh` and `workers.sh`. |
+| **A.2** | **Networking** | **Install Tailscale** | Install the Tailscale client on **all** desktops for secure, zero-trust access. Automated by `orchestrator.sh`. |
+| **A.3** | **K3s Server** | **Install Control Plane** | Run `orchestrator.sh` on the primary desktop to install the K3s server and configure the control plane. |
+| **A.4** | **K3s Config** | **Configure `kubectl`** | The `orchestrator.sh` script automatically copies the K3s config to `~/.kube/config` for the calling user. |
+| **A.5** | **Traefik SSL** | **Enable Let's Encrypt** | The `orchestrator.sh` script creates a `HelmChartConfig` manifest to enable the ACME resolver for Traefik. |
+| **A.6** | **NFS Storage** | **Deploy NFS Provisioner** | After the cluster is up, run the `nfs.sh` script to deploy the `nfs-subdir-external-provisioner`, enabling persistent storage. |
 
 ---
 
