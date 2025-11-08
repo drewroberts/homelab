@@ -91,10 +91,10 @@ The `orchestrator.sh` script automates the initial setup on the control-plane no
 
 | Stage | Tool | Steps |
 | :--- | :--- | :--- |
-| **1. Build** (CI) | **GitHub Actions + Podman** | 1. `podman build` the new Laravel image with the commit SHA as the tag. 2. `podman push` the tagged image to the GitHub Container Registry (`ghcr.io`). |
-| **2. Deploy** (CD) | **GitHub Actions + SSH** | 1. **SSH** into the K3s Control Plane (Desktop 1) using GitHub Secrets. 2. Execute a deployment script to **patch the Deployment** manifest. |
-| **3. Cluster Update** | **K3s/kubectl** | Run the command to initiate a rolling update: `kubectl set image deployment/laravel-multitenant laravel-app=ghcr.io/<REPO>:<NEW_SHA>`. |
-| **4. Ingress** | **Traefik** | Traefik performs its routine, directing traffic to the healthy new Pods and terminating the old ones, completing the **zero-downtime deployment**. |
+| **1. Build** (CI) | **GitHub Actions + Podman** | 1. `podman build` the new Laravel image with the commit SHA as the tag using a multi-stage `Containerfile`. 2. `podman push` the tagged image to the GitHub Container Registry (`ghcr.io`). |
+| **2. Deploy** (CD) | **GitHub Actions + SSH** | 1. **SSH** into the K3s Control Plane using GitHub Secrets. 2. Run `kubectl apply -f k8s/` to create or update all declarative manifests (Namespace, ConfigMap, Service, Ingress). 3. Run `kubectl set image` to patch the Deployment with the new image tag, triggering a rolling update. |
+| **3. Cluster Update** | **K3s** | K3s receives the patch and initiates a zero-downtime rolling update, bringing up new pods before terminating the old ones. |
+| **4. Ingress** | **Traefik** | Traefik automatically detects the new, healthy pods from the updated Service and routes traffic to them. |
 
 ---
 

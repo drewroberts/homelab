@@ -1,103 +1,232 @@
-# GitHub CI/CD Setup for Homelab Deployment
+# CI/CD Best Practices for Laravel Apps with Podman & K3s
 
-This guide covers setting up automated deployments from GitHub repositories to your K3s homelab using Podman, Apache containers, and GitHub Actions.
+This guide provides a modern, best-practice workflow for automatically building, testing, and deploying Laravel 11+ applications to your K3s homelab using Podman and GitHub Actions.
 
-## Prerequisites
+---
 
-### On Your Orchestrator Node:
-- K3s cluster running (via `orchestrator.sh`)
-- Tailscale installed and configured
-- SSH key pair for GitHub Actions access
-- kubectl configured and working
+## Core Principles
 
-### On GitHub:
-- Repository with your website code
-- GitHub Container Registry access
-- Required secrets configured
+This workflow is built on several modern cloud-native principles:
+- **Multi-Stage Builds:** Creates lean, secure production images by separating build-time tools from the final runtime environment.
+- **Podman-Native CI:** Uses Podman directly in the CI/CD pipeline for consistency with modern container ecosystems.
+- **Declarative Manifests:** Manages all Kubernetes resources (`Deployment`, `Service`, `Ingress`, `ConfigMap`) as version-controlled YAML files.
+- **Isolate Environments:** Uses dedicated Kubernetes namespaces for each application to provide strong security and resource isolation.
+- **Health Checks:** Implements liveness and readiness probes to ensure true zero-downtime deployments.
 
-## Repository Structure
+---
 
-Each website repository should have this structure:
+## Recommended Repository Structure
+
+Organize your Laravel application repository as follows:
+
 ```
-your-website-repo/
-├── Dockerfile                 # Apache container definition
-├── .github/workflows/         # CI/CD automation
+your-laravel-app/
+├── Containerfile                # Defines the multi-stage container build
+├── .github/workflows/           # GitHub Actions CI/CD automation
 │   └── deploy.yml
-├── k8s/                       # Kubernetes manifests
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   └── ingress.yaml
-├── src/                       # Your website source
-└── apache-config/             # Optional Apache configuration
-    └── site.conf
+├── k8s/                         # All Kubernetes manifests
+│   ├── 00-namespace.yaml
+│   ├── 01-configmap.yaml
+│   ├── 02-deployment.yaml
+│   ├── 03-service.yaml
+│   └── 04-ingress.yaml
+└── src/                         # Your Laravel application source code
 ```
 
-## Step 1: Create the Dockerfile
+---
 
-### For Static Sites (HTML/CSS/JS):
-```dockerfile
-FROM httpd:2.4-alpine
+## Step 1: The Multi-Stage `Containerfile`
 
-# Copy website files to Apache document root
-COPY src/ /usr/local/apache2/htdocs/
+Create a file named `Containerfile` (the Podman-preferred name for a Dockerfile) in your repository root. This file uses two stages to build a lean, production-ready image.
 
-# Optional: Copy custom Apache configuration
-# COPY apache-config/site.conf /usr/local/apache2/conf/extra/site.conf
+```Containerfile
+# --- Stage 1: The Builder ---
+# Use the official Composer image to install PHP dependencies
+FROM composer:2.7 as builder
 
-# Enable mod_rewrite if needed
-RUN sed -i 's/#LoadModule rewrite_module/LoadModule rewrite_module/' /usr/local/apache2/conf/httpd.conf
+WORKDIR /app
+
+# Copy only the necessary files to leverage build cache
+COPY src/composer.json src/composer.lock ./
+
+# Install production dependencies
+RUN composer install --no-interaction --no-plugins --no-scripts --no-dev --prefer-dist --optimize-autoloader
+
+
+# --- Stage 2: The Final Production Image ---
+# Start from the official PHP 8.4 Apache image
+FROM php:8.4-apache
+
+# Set the working directory
+WORKDIR /var/www/html
+
+# Install required PHP extensions for Laravel
+RUN docker-php-ext-install pdo pdo_mysql
+
+# Enable Apache's mod_rewrite for Laravel's routing
+RUN a2enmod rewrite
+
+# Copy the entire application source code
+COPY src/ .
+
+# Copy the pre-installed vendor directory from the builder stage
+COPY --from=builder /app/vendor/ ./vendor/
+
+# Set correct ownership and permissions for the web server
+# The 'apache' user is created by the base image
+RUN chown -R www-data:www-data /var/www/html && 
+    chmod -R 775 /var/www/html/storage
 
 # Expose port 80
 EXPOSE 80
-
-# Apache runs in foreground by default
-CMD ["httpd-foreground"]
 ```
 
-### For PHP Applications:
-```dockerfile
-FROM php:8.2-apache
+---
 
-# Install PHP extensions as needed
-RUN docker-php-ext-install mysqli pdo pdo_mysql
+## Step 2: Kubernetes Manifests (`k8s/`)
 
-# Enable Apache modules
-RUN a2enmod rewrite
+Create a `k8s` directory and add the following YAML files. Replace `my-laravel-app` and `app.yourdomain.com` with your application's details.
 
-# Copy application files
-COPY src/ /var/www/html/
-
-# Optional: Copy custom Apache configuration
-# COPY apache-config/site.conf /etc/apache2/sites-available/000-default.conf
-
-# Set proper permissions
-RUN chown -R www-data:www-data /var/www/html
-RUN chmod -R 755 /var/www/html
-
-EXPOSE 80
+#### `00-namespace.yaml`
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-laravel-app
 ```
 
-## Step 2: GitHub Secrets Configuration
-
-Navigate to your repository → Settings → Secrets and variables → Actions
-
-Add these secrets:
-
-### Required Secrets:
-- `HOMELAB_SSH_KEY` - Private SSH key for connecting to orchestrator
-- `HOMELAB_HOST` - Tailscale IP or hostname of orchestrator node
-- `HOMELAB_USER` - Username on orchestrator (usually your username)
-- `GHCR_TOKEN` - GitHub Personal Access Token with packages:write scope
-
-### Optional Secrets:
-- `KUBECTL_CONFIG` - Base64 encoded kubeconfig (alternative to SSH)
-
-## Step 3: GitHub Actions Workflow
-
-Create `.github/workflows/deploy.yml`:
+#### `01-configmap.yaml`
+This `ConfigMap` holds your Laravel environment variables. **Do not put sensitive secrets here.** Use GitHub Secrets for database passwords, etc., and inject them into the deployment.
 
 ```yaml
-name: Deploy to Homelab
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-laravel-app-config
+  namespace: my-laravel-app
+data:
+  # This content will become the .env file inside the container
+  .env: |
+    APP_NAME="My Laravel App"
+    APP_ENV=production
+    APP_DEBUG=false
+    APP_URL=https://app.yourdomain.com
+    LOG_CHANNEL=stderr
+    DB_CONNECTION=mysql
+    DB_HOST=mysql.database.svc.cluster.local # Assumes MySQL is in 'database' namespace
+    DB_PORT=3306
+    DB_DATABASE=laravel_db
+    DB_USERNAME=laravel_user
+```
+
+#### `02-deployment.yaml`
+This is the core deployment file. Note the `livenessProbe`, `readinessProbe`, and how it mounts the `ConfigMap`.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-laravel-app
+  namespace: my-laravel-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: my-laravel-app
+  template:
+    metadata:
+      labels:
+        app: my-laravel-app
+    spec:
+      containers:
+      - name: app
+        # The image tag will be replaced by the CI/CD pipeline
+        image: ghcr.io/your-github-user/your-repo-name:latest
+        ports:
+        - containerPort: 80
+        envFrom:
+        - configMapRef:
+            name: my-laravel-app-config
+        # Inject sensitive secrets directly from Kubernetes secrets
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret # The secret created by database.sh
+              key: MYSQL_ROOT_PASSWORD
+              namespace: database
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          httpGet:
+            path: /api/health # Create a simple /api/health route in Laravel
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 30
+```
+
+#### `03-service.yaml`
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-laravel-app-service
+  namespace: my-laravel-app
+spec:
+  selector:
+    app: my-laravel-app
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+```
+
+#### `04-ingress.yaml`
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-laravel-app-ingress
+  namespace: my-laravel-app
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+spec:
+  tls:
+  - hosts:
+    - app.yourdomain.com
+    secretName: my-laravel-app-tls
+  rules:
+  - host: app.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: my-laravel-app-service
+            port:
+              number: 80
+```
+
+---
+
+## Step 3: The GitHub Actions Workflow (`deploy.yml`)
+
+This workflow uses Podman to build and push the image, then uses `kubectl` over SSH to apply the manifests.
+
+```yaml
+name: Build and Deploy Laravel App
 
 on:
   push:
@@ -107,217 +236,79 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  K8S_NAMESPACE: my-laravel-app # Match the namespace in your YAML files
+  K8S_DEPLOYMENT: my-laravel-app # Match the deployment name
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+      packages: write
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+    - name: Install Podman
+      run: sudo apt-get update && sudo apt-get install -y podman
 
-    - name: Log in to Container Registry
+    - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
-        password: ${{ secrets.GHCR_TOKEN }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
+    - name: Build and push container image
+      run: |
+        podman build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} -f Containerfile .
+        podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Deploy to homelab
-      uses: appleboy/ssh-action@v1.0.0
+    - name: Deploy to Homelab
+      uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.HOMELAB_HOST }}
         username: ${{ secrets.HOMELAB_USER }}
         key: ${{ secrets.HOMELAB_SSH_KEY }}
         script: |
-          # Update the deployment with new image
-          kubectl set image deployment/${{ github.event.repository.name }} \
-            app=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-${{ github.sha }}
+          # Set the context to the correct user's config
+          export KUBECONFIG=/home/${{ secrets.HOMELAB_USER }}/.kube/config
           
-          # Wait for rollout to complete
-          kubectl rollout status deployment/${{ github.event.repository.name }} --timeout=300s
+          # Apply all manifests in the k8s directory
+          # This creates/updates the namespace, configmap, service, and ingress
+          kubectl apply -f k8s/
           
-          # Verify deployment
-          kubectl get pods -l app=${{ github.event.repository.name }}
+          # Patch the deployment to use the new image SHA
+          # This triggers a zero-downtime rolling update
+          kubectl set image deployment/${{ env.K8S_DEPLOYMENT }} 
+            -n ${{ env.K8S_NAMESPACE }} 
+            app=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            
+          # Wait for the rollout to complete successfully
+          kubectl rollout status deployment/${{ env.K8S_DEPLOYMENT }} -n ${{ env.K8S_NAMESPACE }} --timeout=120s
 ```
 
-## Step 4: Kubernetes Manifests
+---
 
-### Deployment (`k8s/deployment.yaml`):
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: your-website-name
-  namespace: default
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: your-website-name
-  template:
-    metadata:
-      labels:
-        app: your-website-name
-    spec:
-      containers:
-      - name: app
-        image: ghcr.io/yourusername/your-repo:latest
-        ports:
-        - containerPort: 80
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "50m"
-          limits:
-            memory: "128Mi"
-            cpu: "100m"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 5
-          periodSeconds: 5
-```
+## Step 4: GitHub Secrets
 
-### Service (`k8s/service.yaml`):
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: your-website-name-service
-  namespace: default
-spec:
-  selector:
-    app: your-website-name
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 80
-  type: ClusterIP
-```
+Navigate to your repository's **Settings > Secrets and variables > Actions** and add the following secrets:
 
-### Ingress (`k8s/ingress.yaml`):
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: your-website-name-ingress
-  namespace: default
-  annotations:
-    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-spec:
-  tls:
-  - hosts:
-    - yourdomain.com
-    secretName: your-website-tls
-  rules:
-  - host: yourdomain.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: your-website-name-service
-            port:
-              number: 80
-```
+- `HOMELAB_HOST`: The Tailscale IP address of your orchestrator node.
+- `HOMELAB_USER`: The username you use to SSH into the orchestrator node.
+- `HOMELAB_SSH_KEY`: The **private** key from the `~/.ssh/github-actions` pair generated by `orchestrator.sh`.
+
+The `GITHUB_TOKEN` is automatically provided by GitHub Actions and has the necessary permissions to push to `ghcr.io`.
+
+---
 
 ## Step 5: Initial Deployment
 
-### Deploy Kubernetes Resources:
-```bash
-# SSH to your orchestrator node
-ssh user@orchestrator-tailscale-ip
+The first deployment must be done manually from your orchestrator node to create all the resources.
 
-# Apply the manifests
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
-kubectl apply -f k8s/ingress.yaml
+1.  Clone your repository to the orchestrator node.
+2.  Navigate into the repository directory.
+3.  Run `kubectl apply -f k8s/`.
 
-# Verify deployment
-kubectl get pods
-kubectl get ingress
-```
-
-## Step 6: DNS Configuration
-
-Point your domain to your home IP address:
-```
-yourdomain.com    A    YOUR_PUBLIC_IP
-```
-
-Ensure port forwarding is set up on your router:
-- Port 80 → Orchestrator Node IP
-- Port 443 → Orchestrator Node IP
-
-## Troubleshooting
-
-### Check Deployment Status:
-```bash
-kubectl get deployments
-kubectl describe deployment your-website-name
-kubectl logs -l app=your-website-name
-```
-
-### Check Ingress and Certificates:
-```bash
-kubectl get ingress
-kubectl describe ingress your-website-name-ingress
-kubectl get certificates
-```
-
-### GitHub Actions Debugging:
-- Check Actions tab in your repository
-- Verify all secrets are properly set
-- Ensure Tailscale connectivity to orchestrator
-- Check SSH key permissions and format
-
-## Security Best Practices
-
-1. **Use Tailscale**: All management access via VPN only
-2. **Minimal Permissions**: GitHub token only needs packages:write
-3. **SSH Key Rotation**: Regularly rotate deployment SSH keys
-4. **Image Scanning**: Consider adding vulnerability scanning to workflow
-5. **Resource Limits**: Always set CPU/memory limits on containers
-6. **Non-root Containers**: Run Apache as non-root when possible
-
-## Multiple Website Management
-
-For multiple websites, repeat this process for each repository with:
-- Unique deployment/service/ingress names
-- Different domain names in ingress rules
-- Separate namespaces for organization (optional)
-
-Each website will get its own automated deployment pipeline while sharing the same K3s infrastructure.
+After this initial setup, every `git push` to the `main` branch will trigger the GitHub Actions workflow and automatically deploy your changes.
