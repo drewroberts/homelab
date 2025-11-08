@@ -2,11 +2,10 @@
 set -euo pipefail
 
 # --- Configuration Variables ---
-# These will need to be provided when running the script
 K3S_SERVER_URL=""
 K3S_TOKEN=""
 
-# --- Functions ---
+# --- Utility Functions ---
 
 log() {
     echo -e "\n\033[1;32m>>> $1\033[0m"
@@ -60,137 +59,158 @@ validate_inputs() {
     fi
 }
 
-# --- Main Script ---
+# --- Worker Node Setup Functions ---
 
-# Parse command line arguments
-if [ $# -ne 2 ]; then
-    error "Incorrect number of arguments."
-    show_usage
-    exit 1
-fi
+prepare_worker_system() {
+    log "1. System Preparation"
 
-K3S_SERVER_URL="$1"
-K3S_TOKEN="$2"
+    # Disable swap permanently (K3s requirement)
+    SWAP_ACTIVE=$(swapon --show | wc -l)
+    SWAP_IN_FSTAB=$(grep -c "swap" /etc/fstab || echo "0")
 
-check_root
-validate_inputs
-
-log "K3s Worker Node Setup Script"
-log "Server URL: $K3S_SERVER_URL"
-log "Token: ${K3S_TOKEN:0:10}... (truncated for security)"
-
-log "1. System Preparation"
-
-# 1.1 Disable swap permanently (K3s requirement)
-SWAP_ACTIVE=$(swapon --show | wc -l)
-SWAP_IN_FSTAB=$(grep -c "swap" /etc/fstab || echo "0")
-
-if [ "$SWAP_ACTIVE" -gt 0 ]; then
-    log "Disabling active swap..."
-    swapoff -a
-fi
-
-if [ "$SWAP_IN_FSTAB" -gt 0 ]; then
-    log "Commenting out swap entries in /etc/fstab..."
-    sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
-fi
-
-if [ "$SWAP_ACTIVE" -eq 0 ] && [ "$SWAP_IN_FSTAB" -eq 0 ]; then
-    log "Swap already disabled and removed from fstab."
-elif [ "$SWAP_ACTIVE" -eq 0 ] && [ "$SWAP_IN_FSTAB" -gt 0 ]; then
-    log "Swap was inactive but fstab entries have been commented out."
-elif [ "$SWAP_ACTIVE" -gt 0 ] && [ "$SWAP_IN_FSTAB" -eq 0 ]; then
-    log "Active swap disabled (fstab was already clean)."
-else
-    log "Swap disabled and fstab entries commented out."
-fi
-
-# 1.2 Install necessary packages (minimal for worker nodes)
-PACKAGES="curl git kubectl nfs-utils"
-MISSING_PACKAGES=()
-
-# Check which packages are missing
-for package in $PACKAGES; do
-    if ! pacman -Qi "$package" >/dev/null 2>&1; then
-        MISSING_PACKAGES+=("$package")
+    if [ "$SWAP_ACTIVE" -gt 0 ]; then
+        log "Disabling active swap..."
+        swapoff -a
     fi
-done
 
-# Only install missing packages
-if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
-    log "Installing missing packages: ${MISSING_PACKAGES[*]}"
-    yay -S --noconfirm "${MISSING_PACKAGES[@]}" || { error "Package installation failed."; exit 1; }
-else
-    log "All required packages already installed."
-fi
-
-log "2. Joining K3s Cluster as Worker Node"
-
-# 2.1 Check if K3s agent is already installed and running
-if systemctl is-active --quiet k3s-agent; then
-    log "K3s agent is already installed and running."
-    
-    # Check if this node is already part of a cluster
-    if [ -f "/etc/rancher/k3s/k3s.yaml" ]; then
-        log "This node appears to already be part of a K3s cluster."
-        log "If you need to rejoin a different cluster, please uninstall K3s first:"
-        log "  /usr/local/bin/k3s-agent-uninstall.sh"
-        exit 0
+    if [ "$SWAP_IN_FSTAB" -gt 0 ]; then
+        log "Commenting out swap entries in /etc/fstab..."
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
     fi
-else
-    log "Installing K3s agent and joining cluster..."
-    
-    # Test connectivity to server before attempting join
-    log "Testing connectivity to K3s server..."
-    if ! curl -k --connect-timeout 10 "$K3S_SERVER_URL/ping" >/dev/null 2>&1; then
-        error "Cannot reach K3s server at $K3S_SERVER_URL"
-        error "Please ensure:"
-        error "  1. The server IP address is correct"
-        error "  2. The server node is running"
-        error "  3. Firewall allows access to port 6443"
-        error "  4. Both machines are on the same network"
-        exit 1
-    fi
-    
-    # Install K3s agent
-    curl -sfL https://get.k3s.io | K3S_URL="$K3S_SERVER_URL" K3S_TOKEN="$K3S_TOKEN" sh -
-    
-    log "Waiting for K3s agent to initialize..."
-    sleep 10
-    
-    # Verify agent is running
-    if systemctl is-active --quiet k3s-agent; then
-        log "K3s agent successfully started."
+
+    if [ "$SWAP_ACTIVE" -eq 0 ] && [ "$SWAP_IN_FSTAB" -eq 0 ]; then
+        log "Swap already disabled and removed from fstab."
+    elif [ "$SWAP_ACTIVE" -eq 0 ] && [ "$SWAP_IN_FSTAB" -gt 0 ]; then
+        log "Swap was inactive but fstab entries have been commented out."
+    elif [ "$SWAP_ACTIVE" -gt 0 ] && [ "$SWAP_IN_FSTAB" -eq 0 ]; then
+        log "Active swap disabled (fstab was already clean)."
     else
-        error "K3s agent failed to start. Check logs with: journalctl -u k3s-agent"
+        log "Swap disabled and fstab entries commented out."
+    fi
+
+    # Install necessary packages (minimal for worker nodes)
+    PACKAGES="curl git kubectl nfs-utils"
+    MISSING_PACKAGES=()
+
+    for package in $PACKAGES; do
+        if ! pacman -Qi "$package" >/dev/null 2>&1; then
+            MISSING_PACKAGES+=("$package")
+        fi
+    done
+
+    if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
+        log "Installing missing packages: ${MISSING_PACKAGES[*]}"
+        yay -S --noconfirm "${MISSING_PACKAGES[@]}" || { error "Package installation failed."; exit 1; }
+    else
+        log "All required packages already installed."
+    fi
+}
+
+join_k3s_cluster() {
+    log "2. Joining K3s Cluster as Worker Node"
+
+    # Check if K3s agent is already installed and running
+    if systemctl is-active --quiet k3s-agent; then
+        log "K3s agent is already installed and running."
+        
+        # Check if this node is already part of a cluster
+        if [ -f "/etc/rancher/k3s/k3s.yaml" ]; then
+            log "This node appears to already be part of a K3s cluster."
+            log "If you need to rejoin a different cluster, please uninstall K3s first:"
+            log "  /usr/local/bin/k3s-agent-uninstall.sh"
+            exit 0
+        fi
+    else
+        log "Installing K3s agent and joining cluster..."
+        
+        # Test connectivity to server before attempting join
+        log "Testing connectivity to K3s server..."
+        if ! curl -k --connect-timeout 10 "$K3S_SERVER_URL/ping" >/dev/null 2>&1; then
+            error "Cannot reach K3s server at $K3S_SERVER_URL"
+            error "Please ensure:"
+            error "  1. The server IP address is correct"
+            error "  2. The server node is running"
+            error "  3. Firewall allows access to port 6443"
+            error "  4. Both machines are on the same network"
+            exit 1
+        fi
+        
+        # Install K3s agent
+        curl -sfL https://get.k3s.io | K3S_URL="$K3S_SERVER_URL" K3S_TOKEN="$K3S_TOKEN" sh -
+        
+        log "Waiting for K3s agent to initialize..."
+        sleep 10
+        
+        # Verify agent is running
+        if systemctl is-active --quiet k3s-agent; then
+            log "K3s agent successfully started."
+        else
+            error "K3s agent failed to start. Check logs with: journalctl -u k3s-agent"
+            exit 1
+        fi
+    fi
+}
+
+verify_worker_setup() {
+    log "3. Verification"
+
+    # Check agent status
+    if systemctl is-active --quiet k3s-agent; then
+        log "✓ K3s agent is running successfully."
+    else
+        error "K3s agent is not running."
         exit 1
     fi
-fi
 
-log "3. Verification"
+    # Show node information
+    HOSTNAME=$(hostname)
+    log "Worker node '$HOSTNAME' has been configured."
+    log "To verify the node joined successfully, run this on your server node:"
+    log "  kubectl get nodes"
+}
 
-# 3.1 Check agent status
-if systemctl is-active --quiet k3s-agent; then
-    log "✓ K3s agent is running successfully."
-else
-    error "K3s agent is not running."
-    exit 1
-fi
+display_worker_completion() {
+    HOSTNAME=$(hostname)
+    
+    log "✓ WORKER NODE SETUP COMPLETE!"
+    echo ""
+    echo "--- VERIFICATION STEPS ---"
+    echo "1. On your server node, run: kubectl get nodes"
+    echo "2. You should see this worker node ($HOSTNAME) listed as 'Ready'"
+    echo "3. Check agent logs if needed: journalctl -u k3s-agent"
+    echo ""
+    echo "--- NODE PREPARATION COMPLETE ---"
+    echo "• NFS client tools have been installed to support shared storage."
+    echo "• Monitoring agents (Prometheus Node Exporter, Promtail) will be deployed automatically by the orchestrator."
+    echo "------------------------"
+}
 
-# 3.2 Show node information
-HOSTNAME=$(hostname)
-log "Worker node '$HOSTNAME' has been configured."
-log "To verify the node joined successfully, run this on your server node:"
-log "  kubectl get nodes"
+# --- Main Execution ---
 
-log "✓ WORKER NODE SETUP COMPLETE!"
-echo ""
-echo "--- VERIFICATION STEPS ---"
-echo "1. On your server node, run: kubectl get nodes"
-echo "2. You should see this worker node ($HOSTNAME) listed as 'Ready'"
-echo "3. Check agent logs if needed: journalctl -u k3s-agent"
-echo ""
-echo "--- NODE PREPARATION COMPLETE ---"
-echo "• NFS client tools have been installed to support shared storage."
-echo "• Monitoring agents (Prometheus Node Exporter, Promtail) will be deployed automatically by the orchestrator."
-echo "------------------------"
+main() {
+    # Parse command line arguments
+    if [ $# -ne 2 ]; then
+        error "Incorrect number of arguments."
+        show_usage
+        exit 1
+    fi
+
+    K3S_SERVER_URL="$1"
+    K3S_TOKEN="$2"
+
+    check_root
+    validate_inputs
+
+    log "K3s Worker Node Setup Script"
+    log "Server URL: $K3S_SERVER_URL"
+    log "Token: ${K3S_TOKEN:0:10}... (truncated for security)"
+
+    # Execute setup phases
+    prepare_worker_system
+    join_k3s_cluster
+    verify_worker_setup
+    display_worker_completion
+}
+
+# Execute main function with all script arguments
+main "$@"
