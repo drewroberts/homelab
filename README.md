@@ -14,7 +14,7 @@ A production-ready Kubernetes homelab built on Arch Linux desktops using K3s, Tr
 ### Orchestrator Node Setup
 Run this on your primary desktop to create the K3s control plane:
 ```bash
-sudo ./orchestrator.sh
+sudo orchestrator.sh
 ```
 
 **What it does:**
@@ -28,7 +28,7 @@ sudo ./orchestrator.sh
 ### Worker Node Setup
 Run this on additional desktops to join them as worker nodes:
 ```bash
-sudo ./workers.sh <SERVER_URL> <TOKEN>
+sudo workers.sh <SERVER_URL> <TOKEN>
 ```
 
 **What it does:**
