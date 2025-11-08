@@ -32,68 +32,50 @@ The **`nfs-subdir-external-provisioner`** is the perfect choice for this homelab
 
 ---
 
-## Installation Guide: `nfs-subdir-external-provisioner`
+## Automated Installation using `nfs.sh`
 
-Follow these steps **after** you have successfully run `orchestrator.sh` and have `kubectl` access.
+To simplify the setup, this repository includes an idempotent script, `nfs.sh`, that automates the deployment of the `nfs-subdir-external-provisioner`.
 
 ### Step 1: Prepare Your NFS Server
 
-Before you touch Kubernetes, ensure your NFS server is ready.
+This is the only manual part. Before you run the script, ensure your NFS server is ready.
 1.  Install the necessary NFS server packages (e.g., `nfs-utils` on Arch/Debian).
 2.  Create a directory that you will share. For example: `sudo mkdir -p /srv/nfs/k3s`.
-3.  Set the permissions correctly. `sudo chown -R nobody:nogroup /srv/nfs/k3s` and `sudo chmod -R 777 /srv/nfs/k3s`.
+3.  Set the permissions correctly: `sudo chown -R nobody:nogroup /srv/nfs/k3s` and `sudo chmod -R 777 /srv/nfs/k3s`.
 4.  Export the directory by editing `/etc/exports`. Add a line like this, replacing the IP range with your local network's range:
     ```
     /srv/nfs/k3s    192.168.1.0/24(rw,sync,no_subtree_check)
     ```
 5.  Apply the changes: `sudo exportfs -a` and restart the NFS server daemon (`sudo systemctl restart nfs-server.service`).
 
-### Step 2: Add the Helm Repository
+### Step 2: Run the `nfs.sh` Script
 
-On your orchestrator node, add the Helm repository that contains the provisioner chart.
-```bash
-helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
-helm repo update
-```
-
-### Step 3: Install the Provisioner with Helm
-
-This is the most critical step. You will install the provisioner using Helm, providing it with your NFS server's details.
+On your orchestrator node, run the `nfs.sh` script with your server's IP and the export path as arguments. The script handles adding the Helm repository and deploying the provisioner idempotently.
 
 **Find your NFS Server IP and Path:**
 - `NFS_SERVER_IP`: The IP address of your NFS server (e.g., `192.168.1.50`).
 - `NFS_PATH`: The exported directory path from Step 1 (e.g., `/srv/nfs/k3s`).
 
-Now, run the `helm install` command, replacing the placeholder values.
-
+Now, execute the script:
 ```bash
-helm install nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
-    --namespace default \
-    --set nfs.server=YOUR_NFS_SERVER_IP \
-    --set nfs.path=/YOUR_NFS_EXPORT_PATH \
-    --set storageClass.name=nfs-client \
-    --set storageClass.onDelete=delete
+sudo ./nfs.sh <NFS_SERVER_IP> <NFS_EXPORT_PATH>
 ```
 
 **Example:**
 ```bash
-helm install nfs-subdir-external-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
-    --namespace default \
-    --set nfs.server=192.168.1.50 \
-    --set nfs.path=/srv/nfs/k3s \
-    --set storageClass.name=nfs-client \
-    --set storageClass.onDelete=delete
+sudo ./nfs.sh 192.168.1.50 /srv/nfs/k3s
 ```
 
-### Step 4: Verify the Installation
+The script will add the necessary Helm repository and deploy the provisioner. Because it uses `helm upgrade --install`, it is safe to run multiple times.
 
-Check that the `StorageClass` has been successfully created.
+### Step 3: Verify the Installation
+
+The script will automatically verify the installation. You can also check manually to ensure the `StorageClass` has been successfully created.
 ```bash
 kubectl get sc
 ```
 
-You should see `nfs-client` in the output.
-
+You should see `nfs-client` in the output:
 ```
 NAME         PROVISIONER                                     RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
 nfs-client   cluster.local/nfs-subdir-external-provisioner   Delete          Immediate           true                   ...
