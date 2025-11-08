@@ -12,11 +12,105 @@ log() {
     echo -e "\n\033[1;34m>>> $1\033[0m"
 }
 
+error() {
+    echo -e "\n\033[1;31m✗ ERROR: $1\033[0m"
+}
+
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        log "Please run this script with sudo."
+        error "Please run this script with sudo."
         exit 1
     fi
+}
+
+deploy_plg_stack() {
+    log "Deploying PLG Monitoring Stack (Prometheus, Loki, Grafana)"
+
+    # Idempotently create the monitoring namespace
+    log "Ensuring 'monitoring' namespace exists..."
+    cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+EOF
+
+    # Idempotently create the Grafana admin password secret
+    log "Ensuring Grafana admin secret exists..."
+    if ! kubectl get secret grafana-credentials -n monitoring &>/dev/null; then
+        log "Grafana secret not found. Creating a new one..."
+        ADMIN_PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 24)
+        kubectl create secret generic grafana-credentials -n monitoring --from-literal=admin-password="$ADMIN_PASSWORD"
+        echo "  Grafana admin password created and stored in a secret."
+        echo "  Your one-time generated password is: \033[1;33m$ADMIN_PASSWORD\033[0m"
+    else
+        log "Grafana secret already exists. No changes made."
+    fi
+
+    # Deploy Loki for log aggregation
+    log "Deploying Loki StatefulSet..."
+    cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  serviceName: loki
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+      - name: loki
+        image: grafana/loki:latest
+        args:
+          - "-config.file=/etc/loki/local-config.yaml"
+        ports:
+        - containerPort: 3100
+        volumeMounts:
+        - name: loki-storage
+          mountPath: /loki
+  volumeClaimTemplates:
+  - metadata:
+      name: loki-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: nfs-client
+      resources:
+        requests:
+          storage: 100Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  selector:
+    app: loki
+  ports:
+  - port: 3100
+    targetPort: 3100
+EOF
+
+    # Deploy the main monitoring stack using Helm for idempotency
+    log "Deploying kube-prometheus-stack via Helm..."
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+    helm repo update
+
+    # Use `helm upgrade --install` for idempotent deployment
+    helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+      --namespace monitoring \
+      --values ./monitoring/values.yaml \
+      --wait
+
+    log "PLG monitoring stack deployment is complete."
 }
 
 # --- Main Script ---
@@ -50,7 +144,7 @@ else
 fi
 
 # 1.2 Install necessary packages
-PACKAGES="curl git kubectl podman"
+PACKAGES="curl git kubectl podman helm nfs-utils"
 MISSING_PACKAGES=()
 
 # Check which packages are missing
@@ -163,324 +257,11 @@ else
     log "No K3s restart needed - configuration unchanged."
 fi
 
-log "6. Installing PLG Monitoring Stack (Prometheus, Loki, Grafana)"
-
-# 6.1 Create monitoring namespace
-log "Creating monitoring namespace..."
-if ! kubectl get namespace monitoring &>/dev/null; then
-    kubectl create namespace monitoring
-    log "Monitoring namespace created."
-else
-    log "Monitoring namespace already exists."
+    log "No K3s restart needed - configuration unchanged."
 fi
 
-# 6.2 Install Prometheus (P in PLG Stack)
-log "Installing Prometheus..."
-PROMETHEUS_MANIFEST="/var/lib/rancher/k3s/server/manifests/prometheus.yaml"
-if [ ! -f "$PROMETHEUS_MANIFEST" ]; then
-    cat > "$PROMETHEUS_MANIFEST" << 'EOF'
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: prometheus
-  namespace: monitoring
-spec:
-  serviceName: prometheus
-  replicas: 1
-  selector:
-    matchLabels:
-      app: prometheus
-  template:
-    metadata:
-      labels:
-        app: prometheus
-    spec:
-      containers:
-      - name: prometheus
-        image: prom/prometheus:latest
-        ports:
-        - containerPort: 9090
-        resources:
-          requests:
-            memory: "1Gi"
-            cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "1000m"
-        volumeMounts:
-        - name: prometheus-storage
-          mountPath: /prometheus
-        - name: prometheus-config
-          mountPath: /etc/prometheus
-        args:
-          - '--config.file=/etc/prometheus/prometheus.yml'
-          - '--storage.tsdb.path=/prometheus'
-          - '--storage.tsdb.retention.time=30d'
-          - '--web.console.libraries=/etc/prometheus/console_libraries'
-          - '--web.console.templates=/etc/prometheus/consoles'
-      volumes:
-      - name: prometheus-config
-        configMap:
-          name: prometheus-config
-  volumeClaimTemplates:
-  - metadata:
-      name: prometheus-storage
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 50Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: prometheus-service
-  namespace: monitoring
-spec:
-  selector:
-    app: prometheus
-  ports:
-  - port: 9090
-    targetPort: 9090
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: prometheus-config
-  namespace: monitoring
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-    scrape_configs:
-    - job_name: 'prometheus'
-      static_configs:
-      - targets: ['localhost:9090']
-    - job_name: 'kubernetes-nodes'
-      kubernetes_sd_configs:
-      - role: node
-    - job_name: 'kubernetes-pods'
-      kubernetes_sd_configs:
-      - role: pod
-EOF
-    log "Prometheus manifest created."
-else
-    log "Prometheus manifest already exists."
-fi
-
-# 6.3 Install Loki (L in PLG Stack)
-log "Installing Loki..."
-LOKI_MANIFEST="/var/lib/rancher/k3s/server/manifests/loki.yaml"
-if [ ! -f "$LOKI_MANIFEST" ]; then
-    cat > "$LOKI_MANIFEST" << 'EOF'
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: loki
-  namespace: monitoring
-spec:
-  serviceName: loki
-  replicas: 1
-  selector:
-    matchLabels:
-      app: loki
-  template:
-    metadata:
-      labels:
-        app: loki
-    spec:
-      containers:
-      - name: loki
-        image: grafana/loki:latest
-        ports:
-        - containerPort: 3100
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
-        volumeMounts:
-        - name: loki-storage
-          mountPath: /loki
-        - name: loki-config
-          mountPath: /etc/loki
-        args:
-          - '-config.file=/etc/loki/loki.yml'
-      volumes:
-      - name: loki-config
-        configMap:
-          name: loki-config
-  volumeClaimTemplates:
-  - metadata:
-      name: loki-storage
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 100Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: loki-service
-  namespace: monitoring
-spec:
-  selector:
-    app: loki
-  ports:
-  - port: 3100
-    targetPort: 3100
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: loki-config
-  namespace: monitoring
-data:
-  loki.yml: |
-    auth_enabled: false
-    server:
-      http_listen_port: 3100
-    ingester:
-      lifecycler:
-        address: 127.0.0.1
-        ring:
-          kvstore:
-            store: inmemory
-          replication_factor: 1
-    schema_config:
-      configs:
-      - from: 2020-05-15
-        store: boltdb
-        object_store: filesystem
-        schema: v11
-        index:
-          prefix: index_
-          period: 168h
-    storage_config:
-      boltdb:
-        directory: /loki/index
-      filesystem:
-        directory: /loki/chunks
-    limits_config:
-      enforce_metric_name: false
-      reject_old_samples: true
-      reject_old_samples_max_age: 168h
-EOF
-    log "Loki manifest created."
-else
-    log "Loki manifest already exists."
-fi
-
-# 6.4 Install Grafana (G in PLG Stack)
-log "Installing Grafana..."
-GRAFANA_MANIFEST="/var/lib/rancher/k3s/server/manifests/grafana.yaml"
-if [ ! -f "$GRAFANA_MANIFEST" ]; then
-    cat > "$GRAFANA_MANIFEST" << 'EOF'
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: grafana
-  namespace: monitoring
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: grafana
-  template:
-    metadata:
-      labels:
-        app: grafana
-    spec:
-      containers:
-      - name: grafana
-        image: grafana/grafana:latest
-        ports:
-        - containerPort: 3000
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
-        env:
-        - name: GF_SECURITY_ADMIN_PASSWORD
-          value: "homelab123"
-        - name: GF_INSTALL_PLUGINS
-          value: "grafana-piechart-panel"
-        volumeMounts:
-        - name: grafana-storage
-          mountPath: /var/lib/grafana
-      volumes:
-      - name: grafana-storage
-        persistentVolumeClaim:
-          claimName: grafana-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: grafana-service
-  namespace: monitoring
-spec:
-  selector:
-    app: grafana
-  ports:
-  - port: 3000
-    targetPort: 3000
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: grafana-pvc
-  namespace: monitoring
-spec:
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: grafana-ingress
-  namespace: monitoring
-  annotations:
-    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-spec:
-  tls:
-  - hosts:
-    - monitoring.drewroberts.com
-    secretName: grafana-tls
-  rules:
-  - host: monitoring.drewroberts.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: grafana-service
-            port:
-              number: 3000
-EOF
-    log "Grafana manifest created."
-else
-    log "Grafana manifest already exists."
-fi
-
-log "Waiting for monitoring stack to deploy..."
-sleep 10
-
-# Wait for pods to be ready
-log "Checking monitoring stack status..."
-kubectl wait --for=condition=Ready pod -l app=prometheus -n monitoring --timeout=120s || log "Prometheus may still be starting..."
-kubectl wait --for=condition=Ready pod -l app=grafana -n monitoring --timeout=120s || log "Grafana may still be starting..."
-kubectl wait --for=condition=Ready pod -l app=loki -n monitoring --timeout=120s || log "Loki may still be starting..."
+# Deploy the monitoring stack
+deploy_plg_stack
 
 log "7. Setting up GitHub CI/CD Prerequisites"
 
@@ -540,12 +321,12 @@ echo ""
 log "Monitoring Stack Information:"
 echo ""
 echo "Grafana Dashboard Access:"
-echo "  URL: https://monitoring.drewroberts.com (update domain in grafana-ingress)"
+echo "  URL: https://monitoring.drewroberts.com"
 echo "  Username: admin"
-echo "  Password: homelab123"
+echo "  Password: See secret 'grafana-credentials' in 'monitoring' namespace or check console output from first run."
 echo ""
-echo "Prometheus: http://prometheus-service.monitoring.svc.cluster.local:9090"
-echo "Loki: http://loki-service.monitoring.svc.cluster.local:3100"
+echo "Prometheus: Forward port 9090 from the prometheus pod to access."
+echo "Loki: Accessible via Grafana."
 echo ""
 
 log "✓ SETUP COMPLETE!"5. Consider implementing Phase D monitoring stack (Prometheus, Grafana, Loki)
@@ -557,8 +338,8 @@ echo "3. Log out and log back in, OR run: export KUBECONFIG=$USER_HOME/.kube/con
 echo "4. Create GitHub Personal Access Token with packages:write scope"
 echo "5. Add the displayed secrets to your GitHub repository settings"
 echo "6. Follow the GitHub CI/CD guide: githubci.md"
-echo "7. Update monitoring.drewroberts.com in grafana-ingress to your actual domain"
-echo "8. Access Grafana at https://monitoring.drewroberts.com (admin/homelab123)"
+echo "7. Update monitoring.drewroberts.com in monitoring/values.yaml to your actual domain"
+echo "8. Access Grafana at https://monitoring.drewroberts.com"
 echo "9. Create ingress manifest files for each webapp to expose via Traefik"
 echo "10. Your Let's Encrypt resolver name is: \033[1;32mletsencrypt\033[0m"
 echo "------------------"

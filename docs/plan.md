@@ -75,123 +75,18 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 
 ---
 
-### Phase D: Monitoring & Observability (PLG Stack)
+### Phase D: Automated Monitoring & Observability
 
-Deploying a robust PLG (Prometheus, Loki, Grafana) stack is best accomplished using the `kube-prometheus-stack` Helm chart. It bundles Prometheus, Grafana, Alertmanager, and key exporters, managing them with a central, version-controlled configuration. This approach is superior to applying individual YAML files.
+The PLG (Prometheus, Loki, Grafana) stack is deployed automatically by the `orchestrator.sh` script, ensuring a complete, production-ready monitoring solution is available immediately after cluster bootstrap. This process is fully idempotent and managed via version-controlled configuration.
 
-| Step | Component | Action | Details |
-| :--- | :--- | :--- | :--- |
-| **D.1** | **Helm Repo** | **Add Prometheus Community Repo** | `helm repo add prometheus-community https://prometheus-community.github.io/helm-charts` |
-| **D.2** | **Namespace** | **Create Monitoring Namespace** | `kubectl create namespace monitoring` - Isolate the entire monitoring stack. |
-| **D.3** | **Helm Values** | **Configure `values.yaml`** | Create a `monitoring-values.yaml` file to configure persistence, Grafana dashboards, and ingress. |
-| **D.4** | **Helm Install** | **Deploy the Stack** | `helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring -f monitoring-values.yaml` |
-| **D.5** | **Loki** | **Deploy Log Aggregation** | Deploy Loki and Promtail separately, as they are not part of this chart. Configure Grafana to use Loki as a data source. |
-| **D.6** | **Ingress** | **Expose Dashboards** | The Helm chart can create Ingress resources automatically for Grafana and Prometheus, secured via Tailscale. |
+*   **Automated Installation**: The `orchestrator.sh` script handles the entire deployment process.
+*   **Core Technology**:
+    *   **Prometheus & Grafana**: Deployed via the official `kube-prometheus-stack` Helm chart for robust, community-maintained configuration.
+    *   **Loki**: Deployed as a separate `StatefulSet` for centralized log aggregation.
+*   **Centralized Configuration**: All settings for the monitoring stack are managed in the `homelab/monitoring/values.yaml` file, which provides a single source of truth for persistence, Grafana dashboards, and Ingress settings.
+*   **Idempotent & Secure**: The deployment creates a `monitoring` namespace, securely generates a one-time Grafana admin password, and uses `helm upgrade --install` to ensure the process is safely re-runnable.
 
----
-
-#### Best Practice: Monitoring Architecture & Configuration
-
-The `kube-prometheus-stack` chart deploys the **Prometheus Operator**, which automates the management of the monitoring infrastructure. The key components are:
-
-*   **Prometheus Operator**: Watches for custom resources like `ServiceMonitor` and `PodMonitor` and automatically updates the Prometheus configuration to scrape metrics from new services.
-*   **Prometheus**: A `StatefulSet` for metrics collection and storage.
-*   **Grafana**: A `StatefulSet` for visualization. The chart pre-configures it to use the deployed Prometheus as a data source.
-*   **Node Exporter**: A `DaemonSet` that collects host-level metrics from every node.
-*   **Alertmanager**: A `StatefulSet` to handle alerts defined in Prometheus.
-
-Below is a sample `monitoring-values.yaml` demonstrating best practices for configuration.
-
-```yaml
-# FILE: monitoring/monitoring-values.yaml
-#
-# Sample values for the kube-prometheus-stack Helm chart.
-# This file replaces the individual component YAMLs with a single, manageable configuration.
-
-# --- Prometheus Configuration ---
-prometheus:
-  prometheusSpec:
-    # Enable creating ServiceMonitors for services in other namespaces
-    serviceMonitorSelectorNilUsesHelmValues: false
-    # Set retention for metrics data
-    retention: 30d
-    # Define persistent storage for the Prometheus StatefulSet
-    storageSpec:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: nfs-client # Use the NFS provisioner from Phase B
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 50Gi
-
-# --- Grafana Configuration ---
-grafana:
-  # Use the Grafana StatefulSet for stable storage
-  persistence:
-    enabled: true
-    type: pvc
-    storageClassName: nfs-client # Use the NFS provisioner
-    accessModes: ["ReadWriteOnce"]
-    size: 10Gi
-  # Define admin credentials via a secret for security
-  adminPassword:
-    existingSecret: grafana-credentials
-    secretKey: admin-password
-  # Configure Ingress to expose Grafana securely over Tailscale
-  ingress:
-    enabled: true
-    ingressClassName: traefik
-    hosts:
-      - "monitoring.drewroberts.com"
-    tls:
-      - secretName: grafana-tls
-        hosts:
-          - "monitoring.drewroberts.com"
-    annotations:
-      traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
-      traefik.ingress.kubernetes.io/router.entrypoints: websecure
-  # Provision additional data sources like Loki
-  additionalDataSources:
-    - name: Loki
-      type: loki
-      url: http://loki.monitoring.svc.cluster.local:3100
-      access: proxy
-      isDefault: false
-
-# --- Alertmanager Configuration ---
-alertmanager:
-  alertmanagerSpec:
-    storage:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: nfs-client
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 10Gi
-```
-
-#### Key Monitoring Metrics & Alerts
-
-| Category | Metric | Alert Threshold | Action |
-| :--- | :--- | :--- | :--- |
-| **Node Health** | `up{job="node-exporter"}` | Node down > 2 minutes | Send Discord alert, investigate hardware |
-| **Resource Usage** | `node_memory_MemAvailable_bytes` | < 20% available memory | Scale down non-critical workloads |
-| **Disk Space** | `node_filesystem_avail_bytes` | < 15% free space | Clean up logs, extend storage |
-| **Pod Status** | `kube_pod_status_phase{phase="Failed"}` | Failed pods > 0 for 5 minutes | Restart deployment, check logs |
-| **Laravel App** | `traefik_service_request_duration_seconds` | Response time > 2s | Scale up replicas, check database |
-| **Database** | `mysql_up` | MySQL down > 30 seconds | Failover to backup, restore from snapshot |
-
-#### Pre-configured Dashboards
-
-The Helm chart automatically installs several essential dashboards. You can add your own by creating `ConfigMap`s with a specific label (`grafana_dashboard: "1"`).
-
-1.  **Cluster Overview**: Node status, resource utilization, pod distribution.
-2.  **Node Details**: Per-node CPU, memory, disk, network metrics.
-3.  **Application Performance**: Custom dashboards for Laravel response times, error rates.
-4.  **Database Monitoring**: MySQL connections, query performance, replication lag.
-5.  **Traefik Ingress**: Request volume, SSL certificate expiry, backend health.
+This automated approach replaces the previous manual, multi-step process, integrating observability directly into the cluster's core setup.
 
 ---
 

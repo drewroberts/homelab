@@ -1,0 +1,75 @@
+# FILE: homelab/monitoring/values.yaml
+#
+# Default values for the kube-prometheus-stack Helm chart.
+# This file provides a centralized, version-controlled configuration for the entire monitoring stack.
+
+# --- Prometheus Operator Configuration ---
+# The operator is the core component that manages the other monitoring resources.
+prometheus-operator:
+  # Allow the operator to watch for ServiceMonitors in any namespace.
+  # This is crucial for automatically discovering and scraping metrics from your applications.
+  serviceMonitorSelectorNilUsesHelmValues: false
+
+# --- Prometheus Instance Configuration ---
+prometheus:
+  prometheusSpec:
+    # Set the data retention period for metrics.
+    retention: 30d
+    # Enable persistent storage for the Prometheus StatefulSet.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          # This should match the StorageClass created for your NFS provisioner (from Phase B).
+          storageClassName: nfs-client
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+
+# --- Grafana Instance Configuration ---
+grafana:
+  # Use a StatefulSet for Grafana and enable persistence.
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: nfs-client # Use the same NFS provisioner.
+    accessModes: ["ReadWriteOnce"]
+    size: 10Gi
+  # Best Practice: Define the admin password via a Kubernetes secret rather than in values.
+  adminPassword:
+    existingSecret: grafana-credentials
+    secretKey: admin-password
+  # Configure Ingress to expose Grafana securely.
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - "monitoring.drewroberts.com"
+    tls:
+      - secretName: grafana-tls # Traefik will generate this via Let's Encrypt.
+        hosts:
+          - "monitoring.drewroberts.com"
+    annotations:
+      # Instruct Traefik to use the Let's Encrypt resolver configured in Phase A.
+      traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  # Pre-configure the Loki data source.
+  # This assumes Loki is running and accessible at this service address.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki.monitoring.svc.cluster.local:3100
+      access: proxy
+      isDefault: false
+
+# --- Alertmanager Configuration ---
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: nfs-client
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
