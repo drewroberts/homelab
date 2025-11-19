@@ -50,7 +50,7 @@ prepare_host_system() {
     fi
 
     # Install necessary packages
-    PACKAGES="curl git kubectl podman helm nfs-utils"
+    PACKAGES="curl git kubectl podman helm nfs-utils kubeseal"
     MISSING_PACKAGES=()
 
     for package in $PACKAGES; do
@@ -116,57 +116,49 @@ configure_kubectl() {
     fi
 }
 
-configure_traefik() {
-    log "4. Configuring Traefik for Let's Encrypt (ACME Resolver)"
+install_essentials() {
+    log "4. Installing Essentials (Cert-Manager & Sealed Secrets)"
 
-    TRAEFIK_CONFIG=$(cat <<- EOF
-# Note: K3s uses HelmChartConfig to override Traefik's default settings.
-apiVersion: helm.cattle.io/v1
-kind: HelmChartConfig
+    # --- Cert-Manager ---
+    log "Installing Cert-Manager (SSL)..."
+    helm repo add jetstack https://charts.jetstack.io --force-update
+    helm repo update
+
+    helm upgrade --install cert-manager jetstack/cert-manager \
+      --namespace cert-manager \
+      --create-namespace \
+      --set installCRDs=true \
+      --wait
+
+    log "Creating Let's Encrypt ClusterIssuer..."
+    cat <<EOF | kubectl apply -f -
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
 metadata:
-  name: traefik
-  namespace: kube-system
+  name: letsencrypt-prod
 spec:
-  valuesContent: |
-    # Enable the ACME (Let's Encrypt) feature
-    globalArguments:
-      - "--certificatesresolvers.letsencrypt.acme.email=${EMAIL}"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/data/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: $EMAIL
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: traefik
 EOF
-)
 
-    TRAEFIK_CONFIG_PATH="/var/lib/rancher/k3s/server/manifests/traefik-config.yaml"
-    RESTART_NEEDED=false
+    # --- Sealed Secrets ---
+    log "Installing Sealed Secrets (GitOps)..."
+    helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets --force-update
+    helm repo update
 
-    # Calculate checksum of desired config
-    DESIRED_CHECKSUM=$(echo "$TRAEFIK_CONFIG" | sha256sum | awk '{print $1}')
-
-    # Check if config file exists and compare checksums
-    if [ -f "$TRAEFIK_CONFIG_PATH" ]; then
-        CURRENT_CHECKSUM=$(sha256sum "$TRAEFIK_CONFIG_PATH" | awk '{print $1}')
-        if [ "$DESIRED_CHECKSUM" = "$CURRENT_CHECKSUM" ]; then
-            log "Traefik configuration is up-to-date."
-        else
-            log "Traefik configuration has changed. Updating..."
-            echo "$TRAEFIK_CONFIG" > "$TRAEFIK_CONFIG_PATH"
-            RESTART_NEEDED=true
-        fi
-    else
-        log "Creating Traefik configuration..."
-        echo "$TRAEFIK_CONFIG" > "$TRAEFIK_CONFIG_PATH"
-        RESTART_NEEDED=true
-    fi
-
-    if [ "$RESTART_NEEDED" = true ]; then
-        log "Restarting K3s to apply Traefik changes..."
-        systemctl restart k3s
-        log "Waiting for Traefik configuration to apply..."
-        sleep 15
-    else
-        log "No K3s restart needed - configuration unchanged."
-    fi
+    helm upgrade --install sealed-secrets sealed-secrets/sealed-secrets \
+      --namespace kube-system \
+      --set-string fullnameOverride=sealed-secrets-controller \
+      --wait
+      
+    log "Essentials installed."
 }
 
 deploy_plg_stack() {
@@ -322,7 +314,7 @@ metadata:
   name: argocd-server-ingress
   namespace: argocd
   annotations:
-    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   rules:
   - host: argocd.drewroberts.com
