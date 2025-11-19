@@ -10,6 +10,15 @@ This guide details how to implement an automated, "set-it-and-forget-it" backup 
 - **Retention**: Managed automatically by GCS Lifecycle Rules (e.g., keep 7 days).
 - **Cost**: Extremely low (often within the GCP Free Tier for small databases).
 
+## Quick Reference: Retrieving Passwords
+
+If you need to access the database manually or configure a new app, you will need the root password.
+
+```bash
+# Retrieve the MySQL root password
+kubectl get secret mysql-credentials -n database -o jsonpath="{.data.root-password}" | base64 -d; echo
+```
+
 ---
 
 ## Step 1: Google Cloud Platform (GCP) Setup
