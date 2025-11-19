@@ -82,19 +82,22 @@ This phase covers adding more compute capacity to the cluster and deploying the 
 
 ---
 
-### Phase D: CI/CD Workflow (Podman & GitHub Actions)
+### Phase D: GitOps CI/CD Workflow (ArgoCD)
 
-The `orchestrator.sh` script automates the initial setup on the control-plane node required for a secure CI/CD pipeline.
+This homelab employs a "Pull-based" GitOps workflow using **ArgoCD**. Instead of pushing changes directly to the cluster, CI pipelines update the configuration in Git, and ArgoCD synchronizes the cluster to match.
 
-*   **Automated Host Preparation**: The script idempotently installs Tailscale for secure, out-of-band network access and generates a unique SSH key pair (`~/.ssh/github-actions`) for the GitHub Actions runner to use.
-*   **Secure by Default**: This ensures that CI/CD access to the cluster does not require exposing SSH to the public internet. The script outputs the necessary secrets to be added to your GitHub repository.
+**Benefits & Requirements:**
+
+*   **Security (No SSH):** GitHub Actions does not need SSH keys or kubeconfig access. It only needs permission to push to the Git repository.
+*   **Source of Truth:** The Git repository (`fleet`) holds the exact definition of what should be running. If the cluster drifts (e.g., manual edits), ArgoCD detects and corrects it.
+*   **Automated Sync:** ArgoCD polls the repository and applies changes automatically, handling the deployment lifecycle.
 
 | Stage | Tool | Steps |
 | :--- | :--- | :--- |
-| **1. Build** (CI) | **GitHub Actions + Podman** | 1. `podman build` the new Laravel image with the commit SHA as the tag using a multi-stage `Containerfile`. 2. `podman push` the tagged image to the GitHub Container Registry (`ghcr.io`). |
-| **2. Deploy** (CD) | **GitHub Actions + SSH** | 1. **SSH** into the K3s Control Plane using GitHub Secrets. 2. Run `kubectl apply -f k8s/` to create or update all declarative manifests (Namespace, ConfigMap, Service, Ingress). 3. Run `kubectl set image` to patch the Deployment with the new image tag, triggering a rolling update. |
-| **3. Cluster Update** | **K3s** | K3s receives the patch and initiates a zero-downtime rolling update, bringing up new pods before terminating the old ones. |
-| **4. Ingress** | **Traefik** | Traefik automatically detects the new, healthy pods from the updated Service and routes traffic to them. |
+| **1. Build** (CI) | **GitHub Actions + Podman** | 1. `podman build` the new image with the commit SHA as the tag. <br> 2. `podman push` the tagged image to GitHub Container Registry (`ghcr.io`). |
+| **2. Update Config** | **GitHub Actions** | 1. The CI pipeline edits `k8s/deployment.yaml` in the git repo, updating the `image:` field to the new tag. <br> 2. It commits and pushes this change back to the repository. |
+| **3. Sync** (CD) | **ArgoCD** | 1. ArgoCD detects the new commit in the git repository. <br> 2. It compares the desired state (git) with the live state (cluster). <br> 3. It applies the changes, triggering a rolling update in Kubernetes. |
+| **4. Cluster Update** | **K3s** | K3s performs a zero-downtime rolling update, bringing up new pods with the new image version before terminating the old ones. |
 
 ---
 
