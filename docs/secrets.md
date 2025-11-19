@@ -13,10 +13,7 @@ You need the `kubeseal` CLI tool on your local machine (where you write code).
 yay -S kubeseal
 ```
 
-**macOS:**
-```bash
-brew install kubeseal
-```
+**Note:** The `orchestrator.sh` script installs the *controller* inside the cluster, but you need this *CLI tool* on your laptop to encrypt secrets before pushing them.
 
 ## Workflow: How to Seal a Secret
 
