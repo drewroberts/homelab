@@ -1,0 +1,40 @@
+name: Lint Codebase
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          # Scan the current directory recursively
+          scandir: '.'
+
+  yamllint:
+    name: Yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: '.'
+          # Custom configuration to be less annoying with standard K8s/Helm files
+          config_data: |
+            extends: default
+            rules:
+              line-length: disable
+              document-start: disable
+              truthy: disable
