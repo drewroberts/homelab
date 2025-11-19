@@ -294,10 +294,66 @@ deploy_mysql_exporter() {
     log "MySQL Exporter deployment is complete."
 }
 
-setup_github_ci() {
-    log "7. Setting up GitHub CI/CD Prerequisites"
+install_argocd() {
+    log "7. Installing ArgoCD (GitOps)"
 
-    # Install Tailscale for secure CI/CD access
+    # 1. Create namespace
+    log "Ensuring 'argocd' namespace exists..."
+    kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+    # 2. Install ArgoCD
+    log "Applying ArgoCD manifests..."
+    kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+    # 3. Wait for pods
+    log "Waiting for ArgoCD pods to be ready..."
+    kubectl wait --for=condition=Ready pods --all -n argocd --timeout=300s
+
+    # 4. Patch for Insecure Mode (Required for Traefik SSL termination)
+    log "Patching ArgoCD server to run in insecure mode (for Traefik compatibility)..."
+    kubectl -n argocd patch deployment argocd-server --type=json \
+        -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--insecure"}]'
+
+    # 5. Create Ingress
+    log "Creating ArgoCD Ingress..."
+    cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server-ingress
+  namespace: argocd
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+spec:
+  rules:
+  - host: argocd.drewroberts.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: argocd-server
+            port:
+              number: 80
+EOF
+
+    # 6. Get Initial Password
+    log "Retrieving initial admin password..."
+    ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+    
+    echo ""
+    echo "  ArgoCD installed successfully."
+    echo "  URL: https://argocd.drewroberts.com"
+    echo "  Username: admin"
+    echo "  Password: \033[1;33m$ARGOCD_PASSWORD\033[0m"
+    echo ""
+}
+
+setup_tailscale() {
+    log "8. Setting up Tailscale (Secure Remote Access)"
+
+    # Install Tailscale
     if command -v tailscale &> /dev/null; then
         log "Tailscale already installed."
         if systemctl is-active --quiet tailscaled; then
@@ -310,44 +366,12 @@ setup_github_ci() {
         log "Installing Tailscale..."
         yay -S --noconfirm tailscale || { error "Tailscale installation failed."; exit 1; }
         systemctl enable --now tailscaled
-        log "Tailscale installed. Run 'sudo tailscale up' to connect to your tailnet."
+        log "Tailscale installed."
     fi
-
-    # Generate SSH key pair for GitHub Actions (if not exists)
-    CALLING_USER=$(logname)
-    USER_HOME=$(eval echo ~$CALLING_USER)
-    SSH_KEY_PATH="$USER_HOME/.ssh/github-actions"
-
-    if [ ! -f "$SSH_KEY_PATH" ]; then
-        log "Generating SSH key pair for GitHub Actions..."
-        sudo -u "$CALLING_USER" ssh-keygen -t ed25519 -C "github-actions-ci" -f "$SSH_KEY_PATH" -N ""
-        
-        # Add public key to authorized_keys
-        log "Adding GitHub Actions public key to authorized_keys..."
-        sudo -u "$CALLING_USER" cat "${SSH_KEY_PATH}.pub" >> "$USER_HOME/.ssh/authorized_keys"
-        chmod 600 "$USER_HOME/.ssh/authorized_keys"
-        
-        log "GitHub Actions SSH key pair created at: $SSH_KEY_PATH"
-    else
-        log "GitHub Actions SSH key already exists at: $SSH_KEY_PATH"
-    fi
-
-    # Display GitHub CI setup information
-    log "GitHub CI/CD Setup Information:"
+    
     echo ""
-    echo "SSH Key Locations:"
-    echo "  Private key (for GitHub Secrets): $SSH_KEY_PATH"
-    echo "  Public key: ${SSH_KEY_PATH}.pub"
-    echo ""
-    echo "Add these to your GitHub repository secrets:"
-    echo "  HOMELAB_SSH_KEY: $(cat $SSH_KEY_PATH | base64 -w 0)"
-    echo "  HOMELAB_USER: $CALLING_USER"
-    if command -v tailscale &> /dev/null && tailscale status &> /dev/null; then
-        TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "Run 'tailscale up' first")
-        echo "  HOMELAB_HOST: $TAILSCALE_IP"
-    else
-        echo "  HOMELAB_HOST: <Run 'tailscale up' to get IP>"
-    fi
+    echo "  To connect this node to your Tailnet, run:"
+    echo "  sudo tailscale up"
     echo ""
 }
 
@@ -370,12 +394,10 @@ display_completion_info() {
     echo "2. Set up Port Forwarding (80/443) on your router to this machine"
     echo "3. Deploy a database with: sudo database.sh [NODE_NAME]"
     echo "4. Log out and log back in, OR run: export KUBECONFIG=$USER_HOME/.kube/config"
-    echo "5. Create GitHub Personal Access Token with packages:write scope"
-    echo "6. Add the displayed secrets to your GitHub repository settings"
-    echo "7. Follow the GitHub CI/CD guide: githubci.md"
-    echo "8. Update monitoring.drewroberts.com in monitoring/values.yaml to your actual domain"
-    echo "9. Access Grafana at https://monitoring.drewroberts.com"
-    echo "10. When creating Ingresses, use the 'letsencrypt' resolver for automatic SSL."
+    echo "5. Follow the Repository Standards guide: docs/repos.md"
+    echo "6. Update monitoring.drewroberts.com in monitoring/values.yaml to your actual domain"
+    echo "7. Access Grafana at https://monitoring.drewroberts.com"
+    echo "8. Access ArgoCD at https://argocd.drewroberts.com"
     echo "------------------"
 }
 
@@ -396,8 +418,11 @@ main() {
     deploy_plg_stack
     deploy_mysql_exporter
     
-    # GitHub CI/CD Setup
-    setup_github_ci
+    # Phase C: GitOps
+    install_argocd
+
+    # Remote Access
+    setup_tailscale
     
     # Display completion information
     display_completion_info

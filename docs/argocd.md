@@ -6,75 +6,27 @@ This guide will help you transition from a "Push-based" CI/CD workflow (where Gi
 
 ## 1. Installation
 
-We will install ArgoCD into its own namespace using the official manifests.
+**Good news:** ArgoCD is automatically installed and configured by the `orchestrator.sh` script. You do not need to install it manually.
 
-```bash
-# 1. Create the namespace
-kubectl create namespace argocd
-
-# 2. Install ArgoCD (Stable version)
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-```
-
-Wait for all pods to be ready:
-```bash
-kubectl wait --for=condition=Ready pods --all -n argocd --timeout=300s
-```
+The script performs the following:
+- Creates the `argocd` namespace.
+- Installs the stable version of ArgoCD.
+- Configures it to work with Traefik (SSL termination).
+- Creates an Ingress at `https://argocd.drewroberts.com`.
 
 ## 2. Accessing the UI
 
 ### Get the Initial Password
-ArgoCD generates a random password for the `admin` user during installation.
+The `orchestrator.sh` script prints the initial password at the end of its run. If you missed it, you can retrieve it with this command:
 
 ```bash
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
 ```
 
-### Option A: Access via Port Forwarding (Simplest)
-To access the dashboard without exposing it to the internet yet:
-
-```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-```
-Now visit `https://localhost:8080` in your browser.
+### Access via Browser
+Visit `https://argocd.drewroberts.com` (or the domain you configured in the Ingress).
 - **Username**: `admin`
 - **Password**: (The one you retrieved above)
-
-### Option B: Access via Traefik (Production)
-Since your cluster uses Traefik with Let's Encrypt (configured in `orchestrator.sh`), you can expose ArgoCD securely.
-
-**Important**: By default, ArgoCD uses self-signed TLS internally. To make it work smoothly with Traefik, we should disable internal TLS (Traefik handles the SSL termination).
-
-1. **Patch ArgoCD to run in insecure mode**:
-   ```bash
-   kubectl -n argocd patch deployment argocd-server --type=json -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--insecure"}]'
-   ```
-
-2. **Create the Ingress**:
-   Save this as `argocd-ingress.yaml` and apply it (`kubectl apply -f argocd-ingress.yaml`).
-
-   ```yaml
-   apiVersion: networking.k8s.io/v1
-   kind: Ingress
-   metadata:
-     name: argocd-server-ingress
-     namespace: argocd
-     annotations:
-       # Use the Let's Encrypt resolver defined in orchestrator.sh
-       traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
-   spec:
-     rules:
-     - host: argocd.drewroberts.com  # REPLACE THIS with your actual domain
-       http:
-         paths:
-         - path: /
-           pathType: Prefix
-           backend:
-             service:
-               name: argocd-server
-               port:
-                 number: 80
-   ```
 
 ## 3. The GitOps Workflow
 
@@ -139,38 +91,41 @@ spec:
     targetPort: 8080   # Forwards traffic to the container's port 8080
 ```
 
-## 5. Deploying Your First App
+## 5. Registering a New App
 
-Let's say you have a repository `github.com/drewroberts/homelab-apps` containing a folder `my-laravel-app` with your Kubernetes YAMLs (`deployment.yaml`, `service.yaml`, etc.).
+ArgoCD does not automatically know about your GitHub repositories. You must explicitly "register" each application by creating an **Application** resource in Kubernetes. This resource acts as a contract, telling ArgoCD: *"Watch this specific Git repo and sync it to this cluster."*
 
-You create an **Application** resource in Kubernetes to tell ArgoCD to manage it.
+### The Registration Process
+1.  Create a file named `application.yaml` (you can store this in your app repo or a central "fleet" repo).
+2.  Edit the `repoURL` and `path` to match your project.
+3.  Apply it to the cluster: `kubectl apply -f application.yaml`.
 
-Create `application.yaml`:
-
+### Sample `application.yaml`
 ```yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: my-laravel-app
+  name: my-laravel-app   # The name that will appear in the ArgoCD UI
   namespace: argocd
 spec:
   project: default
   source:
+    # 1. WHICH REPO?
     repoURL: https://github.com/drewroberts/homelab-apps.git
-    targetRevision: HEAD
+    
+    # 2. WHICH BRANCH?
+    targetRevision: main
+    
+    # 3. WHICH FOLDER? (ArgoCD looks for YAMLs here)
     path: my-laravel-app
   destination:
+    # 4. WHERE TO DEPLOY?
     server: https://kubernetes.default.svc
     namespace: default
   syncPolicy:
     automated:
-      prune: true      # Delete resources that are removed from git
-      selfHeal: true   # Fix cluster if someone manually changes something
-```
-
-Apply it:
-```bash
-kubectl apply -f application.yaml
+      prune: true      # If you delete a file in git, delete it in k8s
+      selfHeal: true   # If someone manually edits k8s, revert it to match git
 ```
 
 ## 6. Connecting Private Repositories
@@ -183,3 +138,73 @@ If your repository is private, you need to give ArgoCD access.
     - Go to ArgoCD UI -> Settings -> Repositories -> Connect Repo.
     - Select "SSH".
     - Paste the private key.
+
+## 7. Automating Image Updates (CI)
+
+To complete the GitOps loop, your GitHub Actions pipeline needs to:
+1.  Build the container image using Podman.
+2.  Push it to the registry (GHCR).
+3.  **Update the `deployment.yaml` file in your git repository** with the new image tag.
+4.  Commit and push the change.
+
+ArgoCD will then detect this commit and sync the cluster.
+
+### Example Workflow (`.github/workflows/deploy.yml`)
+
+```yaml
+name: Build and Update Manifest
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # IMPORTANT: Needed to commit back to the repo
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Podman
+      run: sudo apt-get update && sudo apt-get install -y podman
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and Push Image
+      run: |
+        IMAGE_TAG=${{ github.sha }}
+        FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+        
+        podman build -t $FULL_IMAGE -f Containerfile .
+        podman push $FULL_IMAGE
+
+    - name: Update Kubernetes Manifest
+      run: |
+        IMAGE_TAG=${{ github.sha }}
+        FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+        
+        # Update the image line in deployment.yaml
+        # This assumes your file is at k8s/deployment.yaml
+        sed -i "s|image: .*|image: $FULL_IMAGE|g" k8s/deployment.yaml
+        
+        # Commit and push the change
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        
+        git add k8s/deployment.yaml
+        git commit -m "Update image to $IMAGE_TAG"
+        git push
+```
