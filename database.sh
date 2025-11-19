@@ -75,7 +75,7 @@ create_mysql_secret() {
         MYSQL_ROOT_PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 24)
         kubectl create secret generic mysql-credentials -n "$DB_NAMESPACE" --from-literal=root-password="$MYSQL_ROOT_PASSWORD"
         echo "  MySQL root password created and stored in a secret."
-        echo "  Your one-time generated password is: \033[1;33m$MYSQL_ROOT_PASSWORD\033[0m"
+        echo -e "  Your one-time generated password is: \033[1;33m$MYSQL_ROOT_PASSWORD\033[0m"
     else
         log "MySQL secret already exists. No changes made."
     fi
@@ -211,8 +211,8 @@ main() {
     check_root
 
     if [ "$#" -gt 1 ]; then
-        error "Too many arguments."
         show_usage
+        error "Too many arguments."
     fi
 
     check_storage_class

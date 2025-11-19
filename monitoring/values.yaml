@@ -32,7 +32,7 @@ grafana:
   persistence:
     enabled: true
     type: pvc
-    storageClassName: nfs-client # Use the same NFS provisioner.
+    storageClassName: nfs-client  # Use the same NFS provisioner.
     accessModes: ["ReadWriteOnce"]
     size: 10Gi
   # Best Practice: Define the admin password via a Kubernetes secret rather than in values.

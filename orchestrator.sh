@@ -4,7 +4,6 @@ set -euo pipefail
 # --- Configuration Variables ---
 EMAIL="websites@drewroberts.com"
 K3S_CONFIG_PATH="/etc/rancher/k3s/k3s.yaml"
-KUBECONFIG_DIR="$HOME/.kube"
 
 # --- Functions ---
 
@@ -87,7 +86,7 @@ install_k3s_server() {
         
         log "Waiting for K3s to initialize..."
         sleep 10
-        kubectl wait --for=condition=Ready node/$(hostname) --timeout=120s || { error "K3s node failed to become ready."; exit 1; }
+        kubectl wait --for=condition=Ready node/"$(hostname)" --timeout=120s || { error "K3s node failed to become ready."; exit 1; }
     fi
 }
 
@@ -95,7 +94,7 @@ configure_kubectl() {
     log "3. Configuring Cluster Access for Current User"
 
     CALLING_USER=$(logname)
-    USER_HOME=$(eval echo ~$CALLING_USER)
+    USER_HOME=$(eval echo "~$CALLING_USER")
     USER_KUBECONFIG="$USER_HOME/.kube/config"
 
     if [ -f "$USER_KUBECONFIG" ]; then
@@ -189,7 +188,7 @@ EOF
         ADMIN_PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 24)
         kubectl create secret generic grafana-credentials -n monitoring --from-literal=admin-password="$ADMIN_PASSWORD"
         echo "  Grafana admin password created and stored in a secret."
-        echo "  Your one-time generated password is: \033[1;33m$ADMIN_PASSWORD\033[0m"
+        echo -e "  Your one-time generated password is: \033[1;33m$ADMIN_PASSWORD\033[0m"
     else
         log "Grafana secret already exists. No changes made."
     fi
@@ -346,7 +345,7 @@ EOF
     echo "  ArgoCD installed successfully."
     echo "  URL: https://argocd.drewroberts.com"
     echo "  Username: admin"
-    echo "  Password: \033[1;33m$ARGOCD_PASSWORD\033[0m"
+    echo -e "  Password: \033[1;33m$ARGOCD_PASSWORD\033[0m"
     echo ""
 }
 
