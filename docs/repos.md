@@ -105,6 +105,28 @@ spec:
     targetPort: 8080   # Forwards to container's non-root port
 ```
 
+### Handling Secrets (The "Day 2" Workflow)
+
+**NEVER commit `.env` files or passwords to Git.**
+
+Since ArgoCD reads from Git, you cannot store secrets there. Instead, you must manually create the secret in the cluster **once**.
+
+1.  **Create the Secret Manually:**
+    Run this on your orchestrator machine:
+    ```bash
+    # Create a secret from your local .env file
+    kubectl create secret generic my-laravel-app-env \
+      --from-env-file=.env \
+      --namespace default
+    ```
+
+2.  **Reference it in `deployment.yaml`:**
+    ```yaml
+    envFrom:
+    - secretRef:
+        name: my-laravel-app-env
+    ```
+
 ---
 
 ## 2. React Application (TypeScript + Vite)
