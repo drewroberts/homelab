@@ -81,11 +81,65 @@ Since your cluster uses Traefik with Let's Encrypt (configured in `orchestrator.
 In this model, your GitHub Actions pipeline **does not** touch your cluster.
 
 1.  **Code Change**: You push code to GitHub.
-2.  **CI Pipeline**: GitHub Actions builds the Docker image and pushes it to a registry (e.g., GHCR).
+2.  **CI Pipeline**: GitHub Actions builds the container image (using Podman) and pushes it to a registry (e.g., GHCR).
 3.  **Config Update**: GitHub Actions (or you manually) updates the `deployment.yaml` in your git repo to point to the new image tag (e.g., `myapp:v1.0.1`).
-4.  **ArgoCD Sync**: ArgoCD sees the change in the git repo and updates the cluster to match.
+4. **ArgoCD Sync**: ArgoCD sees the change in the git repo and updates the cluster to match.
 
-## 4. Deploying Your First App
+## 4. Preparing Your Application Manifests
+
+To support the secure, non-root Podman container setup (UID 1000) defined in the CI/CD guide, your Kubernetes manifests must be configured to match.
+
+**Key Changes Required:**
+1.  **Port 8080**: Since non-root users cannot bind to port 80, your container listens on 8080. Your Service must target this port.
+2.  **Security Context**: Explicitly tell Kubernetes to run the pod as UID 1000.
+
+### Example `deployment.yaml`
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-laravel-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-laravel-app
+  template:
+    metadata:
+      labels:
+        app: my-laravel-app
+    spec:
+      # SECURITY: Match the UID 1000 from your Containerfile
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: app
+        image: ghcr.io/drewroberts/my-laravel-app:latest
+        ports:
+        - containerPort: 8080  # Must match the EXPOSE in Containerfile
+        readinessProbe:
+          httpGet:
+            path: /up
+            port: 8080
+```
+
+### Example `service.yaml`
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-laravel-app
+spec:
+  selector:
+    app: my-laravel-app
+  ports:
+  - port: 80           # The Service still listens on port 80 internally
+    targetPort: 8080   # Forwards traffic to the container's port 8080
+```
+
+## 5. Deploying Your First App
 
 Let's say you have a repository `github.com/drewroberts/homelab-apps` containing a folder `my-laravel-app` with your Kubernetes YAMLs (`deployment.yaml`, `service.yaml`, etc.).
 
@@ -119,7 +173,7 @@ Apply it:
 kubectl apply -f application.yaml
 ```
 
-## 5. Connecting Private Repositories
+## 6. Connecting Private Repositories
 
 If your repository is private, you need to give ArgoCD access.
 

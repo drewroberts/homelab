@@ -66,6 +66,12 @@ RUN docker-php-ext-install pdo pdo_mysql
 # Enable Apache's mod_rewrite for Laravel's routing
 RUN a2enmod rewrite
 
+# --- SECURITY: Run as Non-Root User (UID 1000) ---
+# We create a user 'drewroberts' with UID 1000 to match the host user.
+# This ensures file permissions on mounted volumes work seamlessly.
+RUN groupadd -g 1000 drewroberts && \
+    useradd -u 1000 -g drewroberts -m -s /bin/bash drewroberts
+
 # Copy the entire application source code
 COPY src/ .
 
@@ -73,12 +79,18 @@ COPY src/ .
 COPY --from=builder /app/vendor/ ./vendor/
 
 # Set correct ownership and permissions for the web server
-# The 'apache' user is created by the base image
-RUN chown -R www-data:www-data /var/www/html && 
+# We change ownership to our new user 'drewroberts' instead of 'www-data'
+RUN chown -R drewroberts:drewroberts /var/www/html && \
     chmod -R 775 /var/www/html/storage
 
-# Expose port 80
-EXPOSE 80
+# Switch to the non-root user
+USER drewroberts
+
+# Expose port 8080 (Non-root users cannot bind to port 80)
+EXPOSE 8080
+
+# Update Apache to listen on 8080
+RUN sed -i 's/80/8080/g' /etc/apache2/ports.conf /etc/apache2/sites-available/*.conf
 ```
 
 ---
