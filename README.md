@@ -10,6 +10,7 @@ A production-ready Kubernetes homelab built on Arch Linux desktops using K3s, Tr
 - **[GitHub CI/CD Setup](docs/githubci.md)** - Guide to automated deployments from GitHub using Podman and container images.
 - **[Monitoring Guide](docs/monitoring.md)** - How to manage the PLG stack and observe cluster health.
 - **[Backup Strategy](docs/backup.md)** - Automated nightly database backups to Google Cloud Storage.
+- **[ArgoCD Setup](docs/argocd.md)** - Guide to implementing GitOps with ArgoCD.
 
 ## Quick Start Scripts
 
