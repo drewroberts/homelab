@@ -43,6 +43,21 @@ show_usage() {
 
 # --- Core Functions ---
 
+check_storage_class() {
+    log "Checking for StorageClass '$DB_STORAGE_CLASS'..."
+    if ! kubectl get sc "$DB_STORAGE_CLASS" >/dev/null 2>&1; then
+        echo -e "\n\033[1;31m✗ ERROR: StorageClass '$DB_STORAGE_CLASS' not found.\033[0m"
+        echo "  The database requires persistent NFS storage to function."
+        echo "  Please run the NFS setup script first:"
+        echo ""
+        echo "    sudo ./nfs.sh <NFS_SERVER_IP> <NFS_EXPORT_PATH>"
+        echo ""
+        exit 1
+    else
+        log "✓ StorageClass '$DB_STORAGE_CLASS' found."
+    fi
+}
+
 ensure_namespace() {
     log "Ensuring namespace '$DB_NAMESPACE' exists..."
     cat <<EOF | kubectl apply -f -
@@ -200,6 +215,7 @@ main() {
         show_usage
     fi
 
+    check_storage_class
     ensure_namespace
     create_mysql_secret
 
