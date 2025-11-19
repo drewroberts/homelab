@@ -11,6 +11,7 @@ A production-ready Kubernetes homelab built on Arch Linux desktops using K3s, Tr
 - **[Monitoring Guide](docs/monitoring.md)** - How to manage the PLG stack and observe cluster health.
 - **[Backup Strategy](docs/backup.md)** - Automated nightly database backups to Google Cloud Storage.
 - **[ArgoCD Setup](docs/argocd.md)** - Guide to implementing GitOps with ArgoCD.
+- **[Repository Standards](docs/repos.md)** - Required structure and configuration for Laravel & React apps.
 
 ## Quick Start Scripts
 
