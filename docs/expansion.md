@@ -67,7 +67,7 @@ The script automates:
 *   **System Preparation:** Disables swap, installs `curl`, `git`, `kubectl`, `podman`, `helm`, `nfs-utils`.
 *   **K3s Server Installation:** Installs K3s in server mode.
 *   **`kubectl` Access:** Configures `~/.kube/config` for the calling user.
-*   **Traefik Ingress & SSL:** Deploys `HelmChartConfig` to enable the `letsencrypt` resolver.
+*   **Essentials:** Installs **cert-manager** (for SSL) and **Sealed Secrets** (for GitOps).
 *   **PLG Monitoring Stack:** Deploys Prometheus, Loki, and Grafana.
 *   **MySQL Monitoring:** Deploys the `prometheus-mysql-exporter` for database visibility.
 *   **CI/CD Preparation:** Installs Tailscale and generates a `~/.ssh/github-actions` key pair.

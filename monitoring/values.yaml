@@ -50,8 +50,8 @@ grafana:
         hosts:
           - "monitoring.drewroberts.com"
     annotations:
-      # Instruct Traefik to use the Let's Encrypt resolver configured in Phase A.
-      traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+      # Use cert-manager for SSL
+      cert-manager.io/cluster-issuer: letsencrypt-prod
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
   # Pre-configure the Loki data source.
   # This assumes Loki is running and accessible at this service address.

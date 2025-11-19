@@ -51,7 +51,7 @@ The system is defined as a **single logical K3s cluster** spanning multiple phys
 | **A.2** | **Networking** | **Install Tailscale** | Install the Tailscale client on **all** desktops for secure, zero-trust access. Automated by `orchestrator.sh`. |
 | **A.3** | **K3s Server** | **Install Control Plane** | Run `orchestrator.sh` on the primary desktop to install the K3s server and configure the control plane. |
 | **A.4** | **K3s Config** | **Configure `kubectl`** | The `orchestrator.sh` script automatically copies the K3s config to `~/.kube/config` for the calling user. |
-| **A.5** | **Traefik SSL** | **Enable Let's Encrypt** | The `orchestrator.sh` script creates a `HelmChartConfig` manifest to enable the ACME resolver for Traefik. |
+| **A.5** | **SSL & Secrets** | **Install Essentials** | The `orchestrator.sh` script installs **cert-manager** (for SSL) and **Sealed Secrets** (for GitOps secret management). |
 | **A.6** | **NFS Storage** | **Deploy NFS Provisioner** | After the cluster is up, run the `nfs.sh` script to deploy the `nfs-subdir-external-provisioner`, enabling persistent storage. |
 
 ---
@@ -161,8 +161,8 @@ metadata:
   name: multi-tenant-router
   namespace: laravel-apps
   annotations:
-    # Use Traefik's internal cert resolver (assumes Phase A.5 is complete)
-    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt 
+    # Use cert-manager for SSL
+    cert-manager.io/cluster-issuer: letsencrypt-prod
     # Optional: Automatically redirect HTTP to HTTPS
     traefik.ingress.kubernetes.io/router.entrypoints: websecure 
 spec:

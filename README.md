@@ -9,6 +9,8 @@ A production-ready Kubernetes homelab built on Arch Linux desktops using K3s, Tr
 - **[NFS Setup Guide](docs/nfs.md)** - How to configure the required NFS persistent storage.
 - **[Monitoring Guide](docs/monitoring.md)** - How to manage the PLG stack and observe cluster health.
 - **[Backup Strategy](docs/backup.md)** - Automated nightly database backups to Google Cloud Storage.
+- **[SSL Management](docs/ssl.md)** - How to use cert-manager for automatic Let's Encrypt certificates.
+- **[Secret Management](docs/secrets.md)** - How to use Sealed Secrets for GitOps-safe password storage.
 - **[ArgoCD Setup](docs/argocd.md)** - Guide to implementing GitOps with ArgoCD.
 - **[Repository Standards](docs/repos.md)** - Required structure and configuration for Laravel & React apps.
 
@@ -90,8 +92,8 @@ sudo database.sh <worker-node-name>
 
 - **Idempotent Scripts**: Safe to run multiple times without breaking the existing setup.
 - **Declarative & Script-Driven**: Manages infrastructure through version-controlled scripts and configuration files.
-- **Automated Secret Management**: Automatically generates secure passwords for Grafana and MySQL.
-- **Automatic SSL**: Let's Encrypt integration via Traefik for all ingress routes.
+- **Automated Secret Management**: Uses **Sealed Secrets** to encrypt credentials in Git, and automatically generates secure passwords for Grafana and MySQL.
+- **Automatic SSL**: **Cert-Manager** integration via Traefik for all ingress routes.
 - **Zero-Trust Security**: Designed for management access only through a Tailscale VPN.
 - **High Availability**: Supports a multi-node setup with automatic failover for applications.
 
