@@ -95,10 +95,16 @@ spec:
 
 ArgoCD does not automatically know about your GitHub repositories. You must explicitly "register" each application by creating an **Application** resource in Kubernetes. This resource acts as a contract, telling ArgoCD: *"Watch this specific Git repo and sync it to this cluster."*
 
-### The Registration Process
-1.  Create a file named `application.yaml` (you can store this in your app repo or a central "fleet" repo).
-2.  Edit the `repoURL` and `path` to match your project.
-3.  Apply it to the cluster: `kubectl apply -f application.yaml`.
+### The Registration Process (The "Fleet" Pattern)
+
+While you can store the `application.yaml` inside your app's repo, the industry standard is to use a **"Fleet Repository"**.
+
+1.  Use the `fleet` git repository (https://github.com/drewroberts/fleet).
+2.  Inside it, create a folder called `apps`.
+3.  Place the `application.yaml` files for ALL your apps in this folder (e.g., `apps/laravel-app.yaml`, `apps/react-app.yaml`).
+4.  Apply them all at once: `kubectl apply -f apps/`.
+
+This keeps your application code separate from your cluster configuration.
 
 ### Sample `application.yaml`
 ```yaml
