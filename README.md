@@ -12,6 +12,29 @@ A production-ready Kubernetes homelab built on Arch Linux desktops using K3s, Tr
 - **[ArgoCD Setup](docs/argocd.md)** - Guide to implementing GitOps with ArgoCD.
 - **[Repository Standards](docs/repos.md)** - Required structure and configuration for Laravel & React apps.
 
+## DNS Setup (Production)
+
+To make your services accessible from the internet, you need to configure your DNS registrar (e.g., Unstoppable Domains, GoDaddy) and your home router.
+
+### 1. DNS Records
+Log into your registrar and create **A Records** pointing to your home's **Public IP Address** for each subdomain:
+
+| Type | Name | Value |
+| :--- | :--- | :--- |
+| A | `argocd` | `[Your Public IP]` |
+| A | `monitoring` | `[Your Public IP]` |
+| A | `*` (Wildcard) | `[Your Public IP]` |
+
+*Note: Using a wildcard (`*`) allows you to create new apps without constantly updating DNS.*
+
+### 2. Router Port Forwarding
+Log into your home router and forward the following ports to your **Orchestrator's Internal IP** (e.g., `192.168.1.50`):
+
+- **Port 80** (HTTP) -> Orchestrator Port 80
+- **Port 443** (HTTPS) -> Orchestrator Port 443
+
+Traefik (running on the cluster) will receive all traffic and route it to the correct service based on the domain name (e.g., `argocd.drewroberts.com`).
+
 ## Quick Start Scripts
 
 ### 1. Orchestrator Node Setup
@@ -79,4 +102,3 @@ sudo database.sh <worker-node-name>
 3. (Optional) Add worker nodes using `sudo workers.sh`.
 4. Run `sudo database.sh` to deploy the MySQL database.
 5. Set up your CI/CD pipeline for automated application deployments (see [GitHub CI/CD Setup](docs/githubci.md)).
-6. Deploy your first application.
