@@ -173,6 +173,33 @@ EOF
     log "Essentials installed."
 }
 
+apply_network_policies() {
+    log "Applying Network Policies (Security Hardening)..."
+    
+    # Define the destination directory
+    POLICIES_DIR="/var/lib/rancher/k3s/policies"
+    
+    # Check if we are in the repo and policies exist
+    if [ -d "policies" ]; then
+        log "Found policies directory in current location."
+        
+        # Create destination if it doesn't exist
+        mkdir -p "$POLICIES_DIR"
+        
+        # Copy policies
+        log "Copying policies to $POLICIES_DIR..."
+        cp -r policies/* "$POLICIES_DIR/"
+        
+        # Apply policies
+        log "Applying network policies..."
+        kubectl apply -f "$POLICIES_DIR"
+        
+        log "Network policies applied successfully."
+    else
+        log "WARNING: 'policies' directory not found in current path. Skipping policy application."
+    fi
+}
+
 deploy_plg_stack() {
     log "5. Deploying PLG Monitoring Stack (Prometheus, Loki, Grafana)"
 
@@ -415,7 +442,8 @@ main() {
     prepare_host_system
     install_k3s_server
     configure_kubectl
-    configure_traefik
+    install_essentials
+    apply_network_policies
     
     # Phase B: Monitoring Stack
     deploy_plg_stack
