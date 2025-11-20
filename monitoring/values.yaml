@@ -46,7 +46,7 @@ grafana:
     hosts:
       - "monitoring.drewroberts.com"
     tls:
-      - secretName: grafana-tls # Traefik will generate this via Let's Encrypt.
+      - secretName: grafana-tls  # Traefik will generate this via Let's Encrypt.
         hosts:
           - "monitoring.drewroberts.com"
     annotations:
