@@ -100,7 +100,7 @@ prepare_worker_system() {
 
     if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
         log "Installing missing packages: ${MISSING_PACKAGES[*]}"
-        yay -S --noconfirm "${MISSING_PACKAGES[@]}" || { error "Package installation failed."; exit 1; }
+        pacman -S --noconfirm "${MISSING_PACKAGES[@]}" || { error "Package installation failed."; exit 1; }
     else
         log "All required packages already installed."
     fi
