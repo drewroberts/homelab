@@ -11,6 +11,7 @@ A production-ready Kubernetes homelab built on Arch Linux desktops using K3s, Tr
 - **[Backup Strategy](docs/backup.md)** - Automated nightly database backups to Google Cloud Storage.
 - **[SSL Management](docs/ssl.md)** - How to use cert-manager for automatic Let's Encrypt certificates.
 - **[Secret Management](docs/secrets.md)** - How to use Sealed Secrets for GitOps-safe password storage.
+- **[Network Security](docs/policies.md)** - Zero Trust network policies and security hardening guide.
 - **[ArgoCD Setup](docs/argocd.md)** - Guide to implementing GitOps with ArgoCD.
 - **[Repository Standards](docs/repos.md)** - Required structure and configuration for Laravel & React apps.
 
