@@ -50,20 +50,32 @@ prepare_host_system() {
     fi
 
     # Install necessary packages
-    PACKAGES="curl git kubectl podman helm nfs-utils kubeseal"
-    MISSING_PACKAGES=()
+    # Standard packages
+    STD_PACKAGES="curl git kubectl podman helm nfs-utils"
+    MISSING_STD_PACKAGES=()
 
-    for package in $PACKAGES; do
+    for package in $STD_PACKAGES; do
         if ! pacman -Qi "$package" >/dev/null 2>&1; then
-            MISSING_PACKAGES+=("$package")
+            MISSING_STD_PACKAGES+=("$package")
         fi
     done
 
-    if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
-        log "Installing missing packages: ${MISSING_PACKAGES[*]}"
-        yay -S --noconfirm "${MISSING_PACKAGES[@]}" || { error "Package installation failed."; exit 1; }
+    if [ ${#MISSING_STD_PACKAGES[@]} -gt 0 ]; then
+        log "Installing missing standard packages: ${MISSING_STD_PACKAGES[*]}"
+        pacman -S --noconfirm "${MISSING_STD_PACKAGES[@]}" || { error "Package installation failed."; exit 1; }
     else
-        log "All required packages already installed."
+        log "All required standard packages already installed."
+    fi
+
+    # AUR packages (kubeseal)
+    if ! pacman -Qi kubeseal >/dev/null 2>&1; then
+        log "Installing kubeseal from AUR..."
+        if [ -n "${SUDO_USER:-}" ]; then
+             sudo -u "$SUDO_USER" yay -S --noconfirm kubeseal || { error "kubeseal installation failed."; exit 1; }
+        else
+             error "Cannot install AUR packages as root without SUDO_USER. Please install 'kubeseal' manually."
+             exit 1
+        fi
     fi
 }
 
@@ -355,7 +367,7 @@ setup_tailscale() {
         fi
     else
         log "Installing Tailscale..."
-        yay -S --noconfirm tailscale || { error "Tailscale installation failed."; exit 1; }
+        pacman -S --noconfirm tailscale || { error "Tailscale installation failed."; exit 1; }
         systemctl enable --now tailscaled
         log "Tailscale installed."
     fi
