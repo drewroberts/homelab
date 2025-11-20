@@ -37,9 +37,25 @@ The policies are located in the `policies/` directory. Here is a breakdown of ea
 - **Rule:** Allows Ingress traffic from the Prometheus monitoring stack.
 - **Requirement:** Ensures your dashboards stay green without exposing metrics ports to the public internet.
 
-## Deployment
+## Deployment & Management
 
-To apply these policies to your cluster:
+### Automated Enforcement
+The `orchestrator.sh` script automatically enforces these policies. When you run the script, it:
+1.  Copies the contents of the `policies/` directory to `/var/lib/rancher/k3s/policies` on the node.
+2.  Applies them to the cluster using `kubectl apply`.
+
+This ensures that your cluster always matches the security posture defined in this repository.
+
+### Modifying Policies
+To change the security rules (e.g., to allow a new port or service):
+1.  **Edit** the YAML files in the `policies/` directory of this repository.
+2.  **Commit** your changes to Git.
+3.  **Apply** the changes to the cluster:
+    *   **Option A (Full Sync):** Run `sudo ./orchestrator.sh` on the node.
+    *   **Option B (Manual):** Run `kubectl apply -f policies/` from your terminal.
+
+### Manual Deployment
+If you are not using the orchestrator script, you can apply the policies manually:
 
 ```bash
 # Apply all policies
